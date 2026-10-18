@@ -13,7 +13,7 @@ from open_gopro.models import constants
 from open_gopro.network.wifi import SsidState, WifiController
 
 from gopro_sync.cameras.base import CameraDriver, CameraIdentity, CameraSession, RemoteMedia
-from gopro_sync.cameras.ble import NonInteractiveBleController
+from gopro_sync.cameras.ble import NonInteractiveBleController, disconnect_stale_gopros
 from gopro_sync.cameras.media import parse_media_list
 from gopro_sync.cameras.wifi import NmcliProfileWifi
 
@@ -105,6 +105,7 @@ class OpenGoProDriver(CameraDriver):
         self._cohn_db = state_dir / "cohn_db.json"
 
     async def pair(self, timeout: float = 60) -> CameraIdentity:
+        await disconnect_stale_gopros()
         gopro = WirelessGoPro(
             target=None,
             interfaces={WirelessGoPro.Interface.BLE},
@@ -121,6 +122,7 @@ class OpenGoProDriver(CameraDriver):
 
     @asynccontextmanager
     async def session(self, identifier: str) -> AsyncIterator[OpenGoProSession]:
+        await disconnect_stale_gopros()
         gopro = WirelessGoPro(
             target=identifier,
             host_wifi_interface=self._wifi_interface,

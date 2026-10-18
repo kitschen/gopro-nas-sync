@@ -35,6 +35,18 @@ async def bluetoothctl(*args: str, timeout: float = PAIR_TIMEOUT + 10) -> tuple[
     return proc.returncode or 0, out.decode(errors="replace")
 
 
+async def disconnect_stale_gopros() -> None:
+    """A connection left over from a crashed session stops the camera advertising, so scans fail."""
+    if platform.system() != "Linux":
+        return
+    _, out = await bluetoothctl("devices", "Connected", timeout=10)
+    for line in out.splitlines():
+        parts = line.split(maxsplit=2)
+        if len(parts) == 3 and parts[0] == "Device" and parts[2].startswith("GoPro"):
+            logger.info("Disconnecting stale BLE connection to %s", parts[2])
+            await bluetoothctl("disconnect", parts[1], timeout=15)
+
+
 async def is_paired(address: str) -> bool:
     _, out = await bluetoothctl("devices", "Paired", timeout=10)
     return any(line.split()[1:2] == [address] for line in out.splitlines() if line.startswith("Device"))
