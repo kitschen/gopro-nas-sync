@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>GoPro NAS Sync</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header>
+  <h1>GoPro NAS Sync</h1>
+  <nav>
+    <button class="tab active" data-tab="status">Status</button>
+    <button class="tab" data-tab="cameras">Cameras</button>
+    <button class="tab" data-tab="nas">NAS</button>
+    <button class="tab" data-tab="history">History</button>
+  </nav>
+</header>
+
+<main>
+  <section id="tab-status" class="panel active">
+    <div class="card">
+      <div class="row">
+        <h2>Current activity</h2>
+        <button id="sync-now" class="primary">Sync now</button>
+      </div>
+      <p id="phase" class="muted">Idle</p>
+      <div id="current" hidden>
+        <div class="filename" id="current-file"></div>
+        <div class="progress"><div id="progress-bar"></div></div>
+        <div class="muted" id="current-stats"></div>
+        <div class="muted" id="queue"></div>
+      </div>
+    </div>
+    <div class="card">
+      <h2>NAS</h2>
+      <div id="nas-health" class="muted">Loading...</div>
+    </div>
+    <div class="card">
+      <h2>Last run</h2>
+      <div id="last-job" class="muted">No sync has run since the service started.</div>
+    </div>
+  </section>
+
+  <section id="tab-cameras" class="panel">
+    <div class="card">
+      <div class="row">
+        <h2>Paired cameras</h2>
+        <button id="pair" class="primary">Pair camera</button>
+      </div>
+      <p class="muted" id="pair-hint"></p>
+      <p id="pair-status"></p>
+      <table>
+        <thead><tr><th>Name</th><th>Model</th><th>Serial</th><th>Firmware</th><th>Last sync</th><th>Enabled</th><th></th></tr></thead>
+        <tbody id="camera-rows"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section id="tab-nas" class="panel">
+    <div class="card">
+      <h2>NAS target</h2>
+      <form id="nas-form">
+        <label>Type
+          <select name="type">
+            <option value="smb">SMB / CIFS share</option>
+            <option value="nfs">NFS export</option>
+            <option value="path">Existing directory (mounted by me)</option>
+          </select>
+        </label>
+        <div class="only-remote">
+          <label>Server (hostname or IP, reachable via Ethernet)<input name="server" placeholder="nas.local"></label>
+          <label><span class="only-smb">Share name</span><span class="only-nfs">Export path</span>
+            <input name="share" placeholder="media or /volume1/media"></label>
+          <label>Protocol version (optional)<input name="version" placeholder="3.0 / 4.1"></label>
+        </div>
+        <div class="only-smb">
+          <label>Username<input name="username" autocomplete="off"></label>
+          <label>Password <span class="muted">(leave empty to keep the stored one)</span>
+            <input name="password" type="password" autocomplete="new-password"></label>
+          <label>Domain (optional)<input name="domain"></label>
+        </div>
+        <div class="only-path">
+          <label>Directory<input name="path" placeholder="/mnt/nas"></label>
+        </div>
+        <label>Sub directory inside the share<input name="subdir"></label>
+        <label>Folder layout <span class="muted">({camera} {date} {year} {month} {folder})</span><input name="layout"></label>
+        <div class="row">
+          <button type="button" id="nas-test">Test connection</button>
+          <button type="submit" class="primary">Save and mount</button>
+          <button type="button" id="nas-mount">Mount</button>
+          <button type="button" id="nas-unmount">Unmount</button>
+        </div>
+      </form>
+      <pre id="nas-result" hidden></pre>
+    </div>
+  </section>
+
+  <section id="tab-history" class="panel">
+    <div class="card">
+      <div class="row">
+        <h2>Transferred files</h2>
+        <div>
+          <input id="search" placeholder="Search...">
+          <select id="history-camera"><option value="">All cameras</option></select>
+          <button id="reset-all" class="danger">Reset list</button>
+        </div>
+      </div>
+      <p class="muted">Files in this list are not transferred again. Remove an entry to transfer that file on the next sync.</p>
+      <table>
+        <thead><tr><th>Camera file</th><th>Size</th><th>NAS path</th><th>Transferred</th><th></th></tr></thead>
+        <tbody id="history-rows"></tbody>
+      </table>
+      <p class="muted" id="history-total"></p>
+    </div>
+  </section>
+</main>
+<footer class="muted" id="footer"></footer>
+<script src="/static/app.js"></script>
+</body>
+</html>

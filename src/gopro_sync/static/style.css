@@ -1,0 +1,38 @@
+:root {
+  --bg: #f4f5f7; --card: #fff; --text: #1d2125; --muted: #6b7280; --accent: #0a84ff; --danger: #d92d20;
+  --border: #e3e5e8;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #15171a; --card: #1f2226; --text: #e6e8eb; --muted: #9aa1a9; --border: #2e3237; }
+}
+* { box-sizing: border-box; }
+body { margin: 0; font: 15px/1.45 system-ui, -apple-system, Segoe UI, Roboto, sans-serif; background: var(--bg); color: var(--text); }
+header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; padding: 12px 20px; background: var(--card); border-bottom: 1px solid var(--border); }
+h1 { font-size: 19px; margin: 0; }
+h2 { font-size: 16px; margin: 0 0 8px; }
+nav { display: flex; gap: 4px; }
+main { max-width: 1100px; margin: 0 auto; padding: 16px; }
+.panel { display: none; }
+.panel.active { display: block; }
+.card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 16px; margin-bottom: 16px; }
+.row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: space-between; }
+.muted { color: var(--muted); }
+button, input, select { font: inherit; color: inherit; background: var(--card); border: 1px solid var(--border); border-radius: 6px; padding: 6px 12px; }
+button { cursor: pointer; }
+button:disabled { opacity: .5; cursor: default; }
+button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+button.danger { color: var(--danger); border-color: var(--danger); }
+button.tab { border: none; }
+button.tab.active { background: var(--accent); color: #fff; }
+.progress { height: 14px; background: var(--border); border-radius: 7px; overflow: hidden; margin: 8px 0; }
+.progress > div { height: 100%; width: 0; background: var(--accent); transition: width .4s; }
+.filename { font-family: ui-monospace, Consolas, monospace; word-break: break-all; }
+table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border); vertical-align: top; }
+td.mono { font-family: ui-monospace, Consolas, monospace; font-size: 13px; word-break: break-all; }
+form label { display: block; margin-bottom: 10px; }
+form input, form select { display: block; width: 100%; margin-top: 4px; }
+pre { white-space: pre-wrap; background: var(--bg); padding: 10px; border-radius: 6px; }
+.ok { color: #12b76a; }
+.err { color: var(--danger); }
+footer { text-align: center; padding: 12px; font-size: 13px; }

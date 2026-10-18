@@ -1,0 +1,6 @@
+// Allow the gopro-sync service user to manage NetworkManager (camera Wi-Fi profile) without sudo.
+polkit.addRule(function (action, subject) {
+    if (subject.user == "gopro-sync" && action.id.indexOf("org.freedesktop.NetworkManager.") == 0) {
+        return polkit.Result.YES;
+    }
+});

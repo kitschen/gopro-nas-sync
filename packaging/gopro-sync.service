@@ -1,0 +1,23 @@
+[Unit]
+Description=GoPro NAS sync daemon
+Documentation=https://github.com/OWNER/gopro-nas-sync
+Wants=network-online.target bluetooth.target
+After=network-online.target bluetooth.target NetworkManager.service remote-fs.target
+
+[Service]
+Type=simple
+User=gopro-sync
+Group=gopro-sync
+SupplementaryGroups=bluetooth netdev
+Environment=LC_ALL=C.UTF-8 PYTHONUNBUFFERED=1 HOME=/var/lib/gopro-sync
+Environment=GOPRO_SYNC_CONFIG=/etc/gopro-sync/config.toml GOPRO_SYNC_STATE_DIR=/var/lib/gopro-sync
+WorkingDirectory=/var/lib/gopro-sync
+ExecStart=/opt/gopro-sync/venv/bin/gopro-sync serve
+Restart=on-failure
+RestartSec=5
+# No NoNewPrivileges / ProtectSystem: the root mount helper is started via sudo from this service
+# and inherits its mount namespace, so it must be able to write /etc/systemd/system.
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

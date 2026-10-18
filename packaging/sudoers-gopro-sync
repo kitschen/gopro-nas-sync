@@ -1,0 +1,2 @@
+# gopro-sync may only run its own mount helper as root (validates all input itself).
+gopro-sync ALL=(root) NOPASSWD: /opt/gopro-sync/bin/gopro-sync-mount
