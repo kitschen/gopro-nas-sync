@@ -9,8 +9,11 @@ from pathlib import Path
 
 import httpx
 from open_gopro import WirelessGoPro
+from open_gopro.features import CohnFeature
 from open_gopro.models import constants
 from open_gopro.network.wifi import SsidState, WifiController
+from tinydb import TinyDB
+from tinydb.storages import MemoryStorage
 
 from gopro_sync.cameras.base import CameraDriver, CameraIdentity, CameraSession, RemoteMedia
 from gopro_sync.cameras.ble import NonInteractiveBleController, disconnect_stale_gopros
@@ -48,6 +51,31 @@ class _NoWifi(WifiController):
     @property
     def is_on(self) -> bool:
         return False
+
+
+class _NoCohn(CohnFeature):
+    """COHN is unused here. The real feature registers for COHN status in a background task while
+    open() sends its own commands; the SDK matches BLE responses strictly in order, so a rejected
+    COHN request (HERO11 answers INVALID_PARAM) gets paired with the wrong command and open() fails."""
+
+    def __init__(self) -> None:
+        super().__init__(TinyDB(storage=MemoryStorage))
+
+    async def open(self, loop, gopro, *args, **kwargs) -> None:  # type: ignore[override]
+        self._gopro = gopro
+        self._supported = False
+
+    async def wait_until_ready(self) -> None:
+        return
+
+    async def close(self) -> None:
+        return
+
+
+def _wireless_gopro(**kwargs) -> WirelessGoPro:
+    gopro = WirelessGoPro(ble_adapter=NonInteractiveBleController, **kwargs)
+    gopro.cohn = _NoCohn()
+    return gopro
 
 
 async def _identity(gopro: WirelessGoPro) -> CameraIdentity:
@@ -106,11 +134,10 @@ class OpenGoProDriver(CameraDriver):
 
     async def pair(self, timeout: float = 60) -> CameraIdentity:
         await disconnect_stale_gopros()
-        gopro = WirelessGoPro(
+        gopro = _wireless_gopro(
             target=None,
             interfaces={WirelessGoPro.Interface.BLE},
             cohn_db=self._cohn_db,
-            ble_adapter=NonInteractiveBleController,
             wifi_adapter=_NoWifi,
         )
         # open() itself retries 5 times; keep each scan short so a failure is reported within minutes
@@ -123,12 +150,11 @@ class OpenGoProDriver(CameraDriver):
     @asynccontextmanager
     async def session(self, identifier: str) -> AsyncIterator[OpenGoProSession]:
         await disconnect_stale_gopros()
-        gopro = WirelessGoPro(
+        gopro = _wireless_gopro(
             target=identifier,
             host_wifi_interface=self._wifi_interface,
             interfaces={WirelessGoPro.Interface.BLE, WirelessGoPro.Interface.WIFI_AP},
             cohn_db=self._cohn_db,
-            ble_adapter=NonInteractiveBleController,
             wifi_adapter=NmcliProfileWifi,
         )
         await gopro.open(timeout=15, retries=3)
