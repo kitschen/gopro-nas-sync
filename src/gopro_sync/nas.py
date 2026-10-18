@@ -169,12 +169,12 @@ class NasManager:
         return await asyncio.to_thread(self._status, nas)
 
     def _status(self, nas: NasConfig) -> NasStatus:
+        if nas.type is NasType.PATH and not nas.path:
+            return NasStatus(type=nas.type.value, target_dir="", mounted=False,
+                             errors=["No NAS configured yet. Set it up in the NAS tab."])
         root = nas.mount_root
         mounted = root.is_dir() if nas.type is NasType.PATH else os.path.ismount(root)
         status = NasStatus(type=nas.type.value, target_dir=str(nas.target_dir), mounted=mounted)
-        if nas.type is NasType.PATH and not nas.path:
-            status.errors.append("No target directory configured.")
-            return status
         if nas.type is not NasType.PATH:
             try:
                 status.route = check_route(nas.server, self.lan_interface) if nas.server else None
