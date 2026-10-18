@@ -87,8 +87,9 @@ command -v systemctl >/dev/null || die "systemd is required."
 
 info "Installing system packages"
 export DEBIAN_FRONTEND=noninteractive
-apt-get update -qq
-apt-get install -y -qq bluez network-manager cifs-utils nfs-common python3 curl git ca-certificates iproute2 rfkill >/dev/null
+APT_LOCK=(-o DPkg::Lock::Timeout=600)
+apt-get "${APT_LOCK[@]}" update -qq
+apt-get "${APT_LOCK[@]}" install -y -qq bluez network-manager cifs-utils nfs-common python3 curl git ca-certificates iproute2 rfkill >/dev/null
 
 systemctl is-active --quiet NetworkManager || die "NetworkManager is not running. Enable it with: sudo raspi-config (Advanced > Network Config > NetworkManager)."
 systemctl enable --now bluetooth >/dev/null 2>&1 || warn "Could not start the bluetooth service."
@@ -125,7 +126,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd || true
 if [[ -n "$SCRIPT_DIR" && -f "$SCRIPT_DIR/pyproject.toml" && -d "$SCRIPT_DIR/packaging" ]]; then
     rm -rf "$PREFIX/src"
     mkdir -p "$PREFIX/src"
-    tar -C "$SCRIPT_DIR" --exclude=.venv --exclude=.git -cf - . | tar -C "$PREFIX/src" -xf -
+    tar -C "$SCRIPT_DIR" --exclude=.venv --exclude=.git -cf - . | tar -C "$PREFIX/src" --no-same-owner -xf -
+    chown -R root:root "$PREFIX/src"
 elif [[ -d "$PREFIX/src/.git" ]]; then
     git -C "$PREFIX/src" fetch --depth 1 origin "$REPO_REF"
     git -C "$PREFIX/src" reset --hard FETCH_HEAD
