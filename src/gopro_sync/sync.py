@@ -123,6 +123,11 @@ class SyncService:
             try:
                 await coro_factory(job)
                 job.phase = "done"
+            except asyncio.CancelledError:
+                logger.info("%s job stopped by user", kind)
+                job.phase = "stopped"
+                done = sum(r.files_done for r in job.cameras)
+                job.message = f"Stopped by user after {done} file(s). Run a sync again to continue."
             except Exception as e:
                 logger.exception("%s job failed", kind)
                 job.phase = "failed"
@@ -140,6 +145,14 @@ class SyncService:
 
     def start_pair(self, timeout: float = 60) -> Job:
         return self._start("pair", lambda job: self._pair(job, timeout))
+
+    def stop(self) -> bool:
+        """Cancel the running job. Completed files stay recorded; the partial file is discarded."""
+        if self.job is None or self._task is None or self._task.done():
+            return False
+        self.job.message = "Stopping..."
+        self._task.cancel()
+        return True
 
     async def wait(self) -> None:
         if self._task:
@@ -180,6 +193,9 @@ class SyncService:
             job.camera = camera.serial
             try:
                 await self._sync_camera(job, camera, result, nas_status.free_bytes)
+            except asyncio.CancelledError:
+                self.db.record_camera_sync(camera.serial, "Stopped by user")
+                raise
             except Exception as e:
                 logger.exception("Sync of camera %s failed", camera.serial)
                 result.error = str(e) or repr(e)
@@ -193,49 +209,59 @@ class SyncService:
             job.error = "; ".join(f"{r.name}: {r.error}" for r in failed)
 
     async def _sync_camera(self, job: Job, camera: Camera, result: CameraResult, free_bytes: int | None) -> None:
-        cfg = self.config.config
         job.phase = "connecting"
         job.message = f"Waking {camera.name} over Bluetooth and joining its Wi-Fi..."
         async with self.driver.session(camera.identifier) as session:
-            if session.identity.serial != camera.serial:
-                raise RuntimeError(f"Connected to camera {session.identity.serial}, expected {camera.serial}")
-            job.phase = "listing"
-            job.message = f"Reading media list of {camera.name}..."
-            media = await session.list_media()
-            done = self.db.transferred_keys(camera.serial)
-            new = [m for m in media if (m.path, m.created) not in done]
-            new.sort(key=lambda m: (m.created, m.path))
-            result.files_found, result.files_new = len(media), len(new)
+            try:
+                await self._sync_session(job, camera, session, result, free_bytes)
+            except asyncio.CancelledError:
+                job.current = None
+                await asyncio.shield(session.sleep())
+                raise
 
-            needed = sum(m.size or 0 for m in new)
-            if free_bytes is not None and needed > free_bytes:
-                raise NasError(f"Not enough space on NAS: need {needed} bytes, {free_bytes} free")
+    async def _sync_session(
+        self, job: Job, camera: Camera, session: CameraSession, result: CameraResult, free_bytes: int | None
+    ) -> None:
+        cfg = self.config.config
+        if session.identity.serial != camera.serial:
+            raise RuntimeError(f"Connected to camera {session.identity.serial}, expected {camera.serial}")
+        job.phase = "listing"
+        job.message = f"Reading media list of {camera.name}..."
+        media = await session.list_media()
+        done = self.db.transferred_keys(camera.serial)
+        new = [m for m in media if (m.path, m.created) not in done]
+        new.sort(key=lambda m: (m.created, m.path))
+        result.files_found, result.files_new = len(media), len(new)
 
-            job.phase = "transferring"
-            job.queue_total = len(new)
-            errors: list[str] = []
-            for index, item in enumerate(new, start=1):
-                job.queue_index = index
-                dest = destination(cfg.nas.target_dir, cfg.storage.layout, camera, item)
-                job.message = f"{camera.name}: {item.path}"
-                try:
-                    size = await self._transfer(job, session, item, dest)
-                except (httpx.TransportError, ConnectionError) as e:
-                    raise RuntimeError(f"Connection to camera lost during {item.path}: {e!r}") from e
-                except Exception as e:
-                    logger.exception("Transfer of %s failed", item.path)
-                    errors.append(f"{item.path}: {e}")
-                    continue
-                self.db.add_transferred(camera.serial, item.path, item.created, size, str(dest))
-                result.files_done += 1
-                result.bytes_done += size
-            job.current = None
+        needed = sum(m.size or 0 for m in new)
+        if free_bytes is not None and needed > free_bytes:
+            raise NasError(f"Not enough space on NAS: need {needed} bytes, {free_bytes} free")
 
-            job.phase = "finishing"
-            job.message = f"Putting {camera.name} to sleep..."
-            await session.sleep()
-            if errors:
-                raise RuntimeError(f"{len(errors)} file(s) failed: " + "; ".join(errors[:3]))
+        job.phase = "transferring"
+        job.queue_total = len(new)
+        errors: list[str] = []
+        for index, item in enumerate(new, start=1):
+            job.queue_index = index
+            dest = destination(cfg.nas.target_dir, cfg.storage.layout, camera, item)
+            job.message = f"{camera.name}: {item.path}"
+            try:
+                size = await self._transfer(job, session, item, dest)
+            except (httpx.TransportError, ConnectionError) as e:
+                raise RuntimeError(f"Connection to camera lost during {item.path}: {e!r}") from e
+            except Exception as e:
+                logger.exception("Transfer of %s failed", item.path)
+                errors.append(f"{item.path}: {e}")
+                continue
+            self.db.add_transferred(camera.serial, item.path, item.created, size, str(dest))
+            result.files_done += 1
+            result.bytes_done += size
+        job.current = None
+
+        job.phase = "finishing"
+        job.message = f"Putting {camera.name} to sleep..."
+        await session.sleep()
+        if errors:
+            raise RuntimeError(f"{len(errors)} file(s) failed: " + "; ".join(errors[:3]))
 
     async def _transfer(self, job: Job, session: CameraSession, item: RemoteMedia, dest: Path) -> int:
         dest.parent.mkdir(parents=True, exist_ok=True)

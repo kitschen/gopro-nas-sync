@@ -22,7 +22,10 @@
     <div class="card">
       <div class="row">
         <h2>Current activity</h2>
-        <button id="sync-now" class="primary">Sync now</button>
+        <div>
+          <button id="stop" class="danger" hidden title="Already transferred files are kept; the next sync continues with the rest">Stop</button>
+          <button id="sync-now" class="primary">Sync now</button>
+        </div>
       </div>
       <p id="phase" class="muted">Idle</p>
       <div id="current" hidden>

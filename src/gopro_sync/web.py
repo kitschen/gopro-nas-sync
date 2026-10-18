@@ -62,6 +62,12 @@ def create_app(config: ConfigStore, db: Database, sync: SyncService, nas: NasMan
             raise HTTPException(409, str(e))
         return {"job_id": job.id}
 
+    @app.post("/api/sync/stop", dependencies=auth)
+    async def stop_sync() -> dict:
+        if not sync.stop():
+            raise HTTPException(409, "Nothing is running")
+        return {"ok": True}
+
     @app.get("/api/status")
     async def status() -> dict:
         return {**sync.status(), "version": __version__, "auth_required": bool(config.config.server.api_token)}

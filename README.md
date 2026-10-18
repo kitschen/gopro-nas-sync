@@ -97,6 +97,7 @@ Requests that change something need `Authorization: Bearer <token>` when a token
 | Method and path | Purpose |
 | --- | --- |
 | `POST /api/sync[?camera=<serial>]` | Start a sync (`202`, or `409` if one is already running) |
+| `POST /api/sync/stop` | Stop the running sync. Finished files are kept and the file in progress is discarded; the next sync continues with the remaining files |
 | `GET /api/status` | Current job and progress, plus the last result |
 | `GET /api/events` | The same as a Server-Sent Events stream |
 | `GET /api/cameras`, `POST /api/cameras/pair` | List cameras, or pair a camera that is in pairing mode |

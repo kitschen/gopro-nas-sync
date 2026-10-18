@@ -71,6 +71,50 @@ async def test_only_one_job_at_a_time(service):
     await service.wait()
 
 
+async def test_stop_keeps_finished_files_and_resumes(config, db, nas, target: Path, monkeypatch):
+    import asyncio
+
+    from gopro_sync.cameras.fake import FakeDriver
+    from gopro_sync.sync import SyncService
+
+    files = {f"100GOPRO/GX01000{i}.MP4": 5000 for i in range(1, 4)}
+    service = SyncService(config, db, FakeDriver(files=files, chunk=1000, delay=0.02), nas)
+    slept = []
+    original_sleep = FakeSession.sleep
+
+    async def record_sleep(self):
+        slept.append(True)
+        await original_sleep(self)
+
+    monkeypatch.setattr(FakeSession, "sleep", record_sleep)
+
+    service.start_sync()
+    while not (service.job and service.job.queue_index == 2 and service.job.current
+               and service.job.current.bytes_done > 0):
+        await asyncio.sleep(0.01)
+    assert service.stop()
+    await service.wait()
+
+    job = service.last_job
+    assert job.phase == "stopped" and job.error is None
+    assert job.cameras[0].files_done == 1
+    assert db.list_transferred()[1] == 1
+    assert not list(target.rglob("*.part"))
+    assert len([p for p in target.rglob("*") if p.is_file()]) == 1
+    assert slept, "camera should be put back to sleep when stopped"
+    assert db.list_cameras()[0].last_error == "Stopped by user"
+
+    service.start_sync()
+    await service.wait()
+    assert service.last_job.cameras[0].files_new == 2
+    assert service.last_job.cameras[0].files_done == 2
+    assert db.list_transferred()[1] == 3
+
+
+async def test_stop_without_job(service):
+    assert service.stop() is False
+
+
 async def test_pairing_stores_camera(service, db):
     db.delete_camera(db.list_cameras()[0].serial)
     service.start_pair()

@@ -45,6 +45,7 @@ function renderStatus(s) {
   const job = s.job;
   $("#sync-now").disabled = s.busy;
   $("#pair").disabled = s.busy;
+  $("#stop").hidden = !s.busy;
   if (!job) {
     $("#phase").textContent = "Idle";
     $("#current").hidden = true;
@@ -69,7 +70,7 @@ function renderStatus(s) {
       `<li>${esc(c.name)}: ${c.files_done} of ${c.files_new} new file(s), ${fmtBytes(c.bytes_done)}` +
       (c.error ? ` <span class="err">- ${esc(c.error)}</span>` : "") + "</li>").join("");
     $("#last-job").innerHTML =
-      `<div>${esc(last.kind)} ${last.error ? '<span class="err">finished with errors</span>' : '<span class="ok">succeeded</span>'} ` +
+      `<div>${esc(last.kind)} ${last.phase === "stopped" ? '<span class="muted">stopped</span>' : last.error ? '<span class="err">finished with errors</span>' : '<span class="ok">succeeded</span>'} ` +
       `at ${fmtTime(last.finished_at)}</div><div>${esc(last.message)}</div>` +
       (last.error ? `<div class="err">${esc(last.error)}</div>` : "") + (cams ? `<ul>${cams}</ul>` : "");
     if (last.kind === "pair") {
@@ -96,6 +97,10 @@ function connectEvents() {
 
 $("#sync-now").addEventListener("click", async () => {
   try { await api("POST", "/api/sync"); } catch (e) { alert(e.message); }
+});
+$("#stop").addEventListener("click", async () => {
+  if (!confirm("Stop now? Files already transferred are kept; the file in progress is discarded and transferred again next time.")) return;
+  try { await api("POST", "/api/sync/stop"); } catch (e) { alert(e.message); }
 });
 
 async function loadNasHealth() {
