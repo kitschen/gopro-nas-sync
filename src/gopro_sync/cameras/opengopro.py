@@ -13,6 +13,7 @@ from open_gopro.models import constants
 from open_gopro.network.wifi import SsidState, WifiController
 
 from gopro_sync.cameras.base import CameraDriver, CameraIdentity, CameraSession, RemoteMedia
+from gopro_sync.cameras.ble import NonInteractiveBleController
 from gopro_sync.cameras.media import parse_media_list
 from gopro_sync.cameras.wifi import NmcliProfileWifi
 
@@ -108,9 +109,11 @@ class OpenGoProDriver(CameraDriver):
             target=None,
             interfaces={WirelessGoPro.Interface.BLE},
             cohn_db=self._cohn_db,
+            ble_adapter=NonInteractiveBleController,
             wifi_adapter=_NoWifi,
         )
-        await gopro.open(timeout=int(timeout), retries=3)
+        # open() itself retries 5 times; keep each scan short so a failure is reported within minutes
+        await gopro.open(timeout=10, retries=3)
         try:
             return await _identity(gopro)
         finally:
@@ -123,9 +126,10 @@ class OpenGoProDriver(CameraDriver):
             host_wifi_interface=self._wifi_interface,
             interfaces={WirelessGoPro.Interface.BLE, WirelessGoPro.Interface.WIFI_AP},
             cohn_db=self._cohn_db,
+            ble_adapter=NonInteractiveBleController,
             wifi_adapter=NmcliProfileWifi,
         )
-        await gopro.open(timeout=30, retries=5)
+        await gopro.open(timeout=15, retries=3)
         session: OpenGoProSession | None = None
         try:
             session = OpenGoProSession(gopro, await _identity(gopro))
