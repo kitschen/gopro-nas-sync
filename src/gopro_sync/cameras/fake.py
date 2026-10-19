@@ -9,7 +9,9 @@ from contextlib import asynccontextmanager
 
 import httpx
 
-from gopro_sync.cameras.base import CameraDriver, CameraIdentity, CameraSession, MediaStream, RemoteMedia
+from gopro_sync.cameras.base import (
+    CameraDriver, CameraIdentity, CameraSession, MediaStream, RemoteMedia, Report, no_report,
+)
 
 IDENTITY = CameraIdentity(
     serial="C3461324701234", identifier="1234", model_name="HERO11 Black (simulated)",
@@ -72,17 +74,26 @@ class FakeDriver(CameraDriver):
             for i, (path, size) in enumerate(self.files.items())
         ]
         # Testing aids
+        self.connect_delay = 0.5 if delay else 0.0
+        self.connect_error: Exception | None = None
         self.supports_range = True
         self.fail_path: str | None = None
         self.fail_offset = 0
         self.failures = 0
         self.sleep_calls = 0
 
-    async def pair(self, timeout: float = 60) -> CameraIdentity:
+    async def pair(self, timeout: float = 60, report: Report = no_report) -> CameraIdentity:
+        report("pair", "Searching for the camera over Bluetooth...")
         await asyncio.sleep(1)
         return IDENTITY
 
     @asynccontextmanager
-    async def session(self, identifier: str) -> AsyncIterator[FakeSession]:
-        await asyncio.sleep(1)
+    async def session(self, identifier: str, report: Report = no_report) -> AsyncIterator[FakeSession]:
+        report("ble", f"Waking camera {identifier} over Bluetooth...")
+        await asyncio.sleep(self.connect_delay)
+        if self.connect_error:
+            raise self.connect_error
+        report("wifi", f"Joining the camera's Wi-Fi '{IDENTITY.ap_ssid}'...")
+        await asyncio.sleep(self.connect_delay)
+        report("info", "Reading camera info over Bluetooth...")
         yield FakeSession(self)

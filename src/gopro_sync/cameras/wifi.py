@@ -62,7 +62,7 @@ class NmcliProfileWifi(WifiController):
     def _connect(self, ssid: str, password: str, timeout: float) -> bool:
         self._delete_profile()
         deadline = time.monotonic() + max(timeout, 30)
-        logger.info("Scanning for camera access point %s on %s", ssid, self.interface)
+        logger.info("Looking for the camera's Wi-Fi network '%s' on %s...", ssid, self.interface)
         while time.monotonic() < deadline:
             out = nmcli("-t", "-f", "SSID", "device", "wifi", "list", "ifname", self.interface, "--rescan", "yes",
                         check=False)
@@ -70,8 +70,9 @@ class NmcliProfileWifi(WifiController):
                 break
             time.sleep(2)
         else:
-            logger.warning("Camera access point %s not found", ssid)
+            logger.warning("The camera's Wi-Fi network '%s' was not found on %s", ssid, self.interface)
             return False
+        logger.info("Found '%s', joining...", ssid)
 
         nmcli(
             "connection", "add", "type", "wifi", "ifname", self.interface, "con-name", PROFILE_NAME,
@@ -83,11 +84,11 @@ class NmcliProfileWifi(WifiController):
         try:
             nmcli("--wait", str(int(max(timeout, 30))), "connection", "up", PROFILE_NAME, timeout=max(timeout, 30) + 15)
         except RuntimeError as e:
-            logger.warning("Failed to bring up camera Wi-Fi: %s", e)
+            logger.warning("Could not join the camera's Wi-Fi '%s': %s", ssid, e)
             self._delete_profile()
             return False
         self._ssid = ssid
-        logger.info("Connected to camera access point %s", ssid)
+        logger.info("Joined the camera's Wi-Fi '%s'", ssid)
         return True
 
     async def disconnect(self) -> bool:

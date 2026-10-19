@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass
 
@@ -54,11 +54,19 @@ class CameraSession(ABC):
         """Put the camera back into standby."""
 
 
+# Progress callback: (step key, human readable detail). Keys used by drivers: "ble", "wifi", "info", "pair".
+Report = Callable[[str, str], None]
+
+
+def no_report(key: str, detail: str) -> None:
+    pass
+
+
 class CameraDriver(ABC):
     @abstractmethod
-    async def pair(self, timeout: float) -> CameraIdentity:
+    async def pair(self, timeout: float, report: Report = no_report) -> CameraIdentity:
         """Find a camera in pairing mode, pair with it and return its identity."""
 
     @abstractmethod
-    def session(self, identifier: str) -> AbstractAsyncContextManager[CameraSession]:
+    def session(self, identifier: str, report: Report = no_report) -> AbstractAsyncContextManager[CameraSession]:
         """Wake the camera with the given identifier and open BLE + Wi-Fi."""

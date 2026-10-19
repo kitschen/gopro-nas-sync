@@ -36,3 +36,16 @@ pre { white-space: pre-wrap; background: var(--bg); padding: 10px; border-radius
 .ok { color: #12b76a; }
 .err { color: var(--danger); }
 footer { text-align: center; padding: 12px; font-size: 13px; }
+.steps { list-style: none; padding: 0; margin: 8px 0; }
+.step { display: grid; grid-template-columns: 22px 1fr auto; column-gap: 6px; padding: 3px 0; }
+.step .icon { text-align: center; font-weight: bold; }
+.step .elapsed { color: var(--muted); font-size: 13px; }
+.step .detail { grid-column: 2 / 4; color: var(--muted); font-size: 13px; word-break: break-word; }
+.step .detail.err { color: var(--danger); }
+.step.done .icon { color: #12b76a; }
+.step.failed .icon, .step.failed .label { color: var(--danger); }
+.step.stopped .icon { color: var(--muted); }
+.step.running .icon::before { content: ""; display: inline-block; width: 11px; height: 11px; border: 2px solid var(--accent); border-right-color: transparent; border-radius: 50%; animation: spin .8s linear infinite; }
+.step.running .label { font-weight: 600; }
+@keyframes spin { to { transform: rotate(360deg); } }
+details summary { cursor: pointer; color: var(--muted); margin-top: 6px; }

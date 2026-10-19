@@ -41,16 +41,29 @@ const PHASES = {
   listing: "Reading media list...", transferring: "Transferring", finishing: "Finishing...", pairing: "Pairing...",
 };
 
+const STEP_ICONS = { done: "\u2713", running: "", failed: "\u2717", stopped: "\u25A0" };
+
+function renderSteps(steps) {
+  return (steps || []).map((st) =>
+    `<li class="step ${st.state}"><span class="icon">${STEP_ICONS[st.state] ?? ""}</span>` +
+    `<span class="label">${esc(st.label)}</span>` +
+    `<span class="elapsed">${fmtDuration(st.elapsed)}</span>` +
+    (st.detail ? `<div class="detail">${esc(st.detail)}</div>` : "") +
+    (st.error ? `<div class="detail err">${esc(st.error)}</div>` : "") + "</li>").join("");
+}
+
 function renderStatus(s) {
   const job = s.job;
   $("#sync-now").disabled = s.busy;
   $("#pair").disabled = s.busy;
   $("#stop").hidden = !s.busy;
+  $("#steps").hidden = !job;
   if (!job) {
     $("#phase").textContent = "Idle";
     $("#current").hidden = true;
   } else {
-    $("#phase").textContent = `${PHASES[job.phase] || job.phase} ${job.message ? "- " + job.message : ""}`;
+    $("#phase").textContent = PHASES[job.phase] || job.phase;
+    $("#steps").innerHTML = renderSteps(job.steps);
     const cur = job.current;
     $("#current").hidden = !cur;
     if (cur) {
@@ -72,7 +85,8 @@ function renderStatus(s) {
     $("#last-job").innerHTML =
       `<div>${esc(last.kind)} ${last.phase === "stopped" ? '<span class="muted">stopped</span>' : last.error ? '<span class="err">finished with errors</span>' : '<span class="ok">succeeded</span>'} ` +
       `at ${fmtTime(last.finished_at)}</div><div>${esc(last.message)}</div>` +
-      (last.error ? `<div class="err">${esc(last.error)}</div>` : "") + (cams ? `<ul>${cams}</ul>` : "");
+      (last.error ? `<div class="err">${esc(last.error)}</div>` : "") + (cams ? `<ul>${cams}</ul>` : "") +
+      (last.steps?.length ? `<details><summary>Steps</summary><ol class="steps">${renderSteps(last.steps)}</ol></details>` : "");
     if (last.kind === "pair") {
       $("#pair-status").innerHTML = last.error ? `<span class="err">${esc(last.error)}</span>` : esc(last.message);
     }

@@ -56,6 +56,29 @@ class CameraResult:
     error: str | None = None
 
 
+STEP_LABELS = {
+    "nas": "Check NAS",
+    "pair": "Pair camera",
+    "ble": "Wake camera over Bluetooth",
+    "wifi": "Join camera Wi-Fi",
+    "info": "Read camera info",
+    "list": "Read media list",
+    "transfer": "Transfer files",
+    "sleep": "Put camera to sleep",
+}
+
+
+@dataclass
+class Step:
+    key: str
+    label: str
+    detail: str = ""
+    state: str = "running"  # running | done | failed | stopped
+    error: str | None = None
+    started_at: float = field(default_factory=time.time)
+    finished_at: float | None = None
+
+
 @dataclass
 class Job:
     id: str
@@ -69,7 +92,40 @@ class Job:
     queue_total: int = 0
     current: FileProgress | None = None
     cameras: list[CameraResult] = field(default_factory=list)
+    steps: list[Step] = field(default_factory=list)
     error: str | None = None
+
+    def step(self, key: str, detail: str = "", camera: str | None = None) -> None:
+        """Enter step `key` (finishing the running one), or update the running step's detail."""
+        running = self._running()
+        if running is None or running.key != key:
+            if running is not None:
+                running.state, running.finished_at = "done", time.time()
+            label = STEP_LABELS.get(key, key)
+            self.steps.append(Step(key=key, label=f"{label} ({camera})" if camera else label))
+            running = self.steps[-1]
+        if detail:
+            running.detail = self.message = detail
+
+    def note(self, detail: str) -> None:
+        """Update the running step's detail."""
+        if (running := self._running()) is not None:
+            running.detail = detail
+        self.message = detail
+
+    def end_step(self, error: BaseException | None = None) -> None:
+        if (running := self._running()) is None:
+            return
+        running.finished_at = time.time()
+        if error is None:
+            running.state = "done"
+        elif isinstance(error, asyncio.CancelledError):
+            running.state = "stopped"
+        else:
+            running.state, running.error = "failed", str(error) or repr(error)
+
+    def _running(self) -> Step | None:
+        return self.steps[-1] if self.steps and self.steps[-1].state == "running" else None
 
     def snapshot(self) -> dict:
         data = asdict(self)
@@ -77,6 +133,9 @@ class Job:
             data["current"]["speed"] = self.current.speed
             remaining = (self.current.bytes_total or 0) - self.current.bytes_done
             data["current"]["eta"] = remaining / self.current.speed if self.current.speed and remaining > 0 else None
+        now = time.time()
+        for step in data["steps"]:
+            step["elapsed"] = (step["finished_at"] or now) - step["started_at"]
         return data
 
 
@@ -127,14 +186,17 @@ class SyncService:
         async def runner() -> None:
             try:
                 await coro_factory(job)
+                job.end_step()
                 job.phase = "done"
-            except asyncio.CancelledError:
+            except asyncio.CancelledError as e:
                 logger.info("%s job stopped by user", kind)
+                job.end_step(e)
                 job.phase = "stopped"
                 done = sum(r.files_done for r in job.cameras)
                 job.message = f"Stopped by user after {done} file(s). Run a sync again to continue."
             except Exception as e:
                 logger.exception("%s job failed", kind)
+                job.end_step(e)
                 job.phase = "failed"
                 job.error = str(e) or repr(e)
             finally:
@@ -167,8 +229,8 @@ class SyncService:
 
     async def _pair(self, job: Job, timeout: float) -> None:
         job.phase = "pairing"
-        job.message = "Scanning for a camera in pairing mode..."
-        identity = await self.driver.pair(timeout)
+        job.step("pair", "Scanning for a camera in pairing mode...")
+        identity = await self.driver.pair(timeout, report=lambda _key, detail: job.step("pair", detail))
         existing = self.db.get_camera(identity.serial)
         self.db.upsert_camera(Camera(
             serial=identity.serial, identifier=identity.identifier,
@@ -189,15 +251,18 @@ class SyncService:
 
         cfg = self.config.config
         job.phase = "preflight"
-        job.message = "Checking NAS..."
+        job.step("nas", f"Checking {cfg.nas.target_dir}...")
         nas_status = await self.nas.preflight(cfg.nas)
+        if nas_status.free_bytes is not None:
+            job.step("nas", f"{cfg.nas.target_dir} is writable, {nas_status.free_bytes / 1024**3:.1f} GB free")
 
         for camera in cameras:
             result = CameraResult(serial=camera.serial, name=camera.name)
             job.cameras.append(result)
             job.camera = camera.serial
+            tag = camera.name if len(cameras) > 1 else None
             try:
-                await self._sync_camera(job, camera, result, nas_status.free_bytes)
+                await self._sync_camera(job, camera, result, nas_status.free_bytes, tag)
             except asyncio.CancelledError:
                 self.db.record_camera_sync(camera.serial, "Stopped by user")
                 raise
@@ -213,35 +278,49 @@ class SyncService:
         if failed:
             job.error = "; ".join(f"{r.name}: {r.error}" for r in failed)
 
-    async def _sync_camera(self, job: Job, camera: Camera, result: CameraResult, free_bytes: int | None) -> None:
+    async def _sync_camera(
+        self, job: Job, camera: Camera, result: CameraResult, free_bytes: int | None, tag: str | None = None
+    ) -> None:
         job.phase = "connecting"
-        job.message = f"Waking {camera.name} over Bluetooth and joining its Wi-Fi..."
-        async with self.driver.session(camera.identifier) as session:
-            try:
-                await self._sync_session(job, camera, session, result, free_bytes)
-            finally:
-                # Also after errors and stops, so the camera doesn't stay on until its auto power-off
-                job.current = None
-                job.phase = "finishing"
-                job.message = f"Putting {camera.name} to sleep..."
+        report = lambda key, detail: job.step(key, detail, tag)  # noqa: E731
+        try:
+            async with self.driver.session(camera.identifier, report) as session:
                 try:
-                    await asyncio.shield(asyncio.wait_for(session.sleep(), 10))
-                except Exception as e:
-                    logger.warning("Could not put %s to sleep: %r", camera.name, e)
+                    await self._sync_session(job, camera, session, result, free_bytes, tag)
+                except BaseException as e:
+                    job.end_step(e)
+                    raise
+                finally:
+                    # Also after errors and stops, so the camera doesn't stay on until its auto power-off
+                    job.current = None
+                    job.phase = "finishing"
+                    job.step("sleep", f"Putting {camera.name} to sleep...", tag)
+                    try:
+                        await asyncio.shield(asyncio.wait_for(session.sleep(), 10))
+                        job.step("sleep", f"{camera.name} is in standby", tag)
+                    except Exception as e:
+                        logger.warning("Could not put %s to sleep: %r", camera.name, e)
+                        job.step("sleep", f"Could not put {camera.name} to sleep: {e!r}", tag)
+                    job.end_step()
+        except BaseException as e:
+            job.end_step(e)
+            raise
 
     async def _sync_session(
-        self, job: Job, camera: Camera, session: CameraSession, result: CameraResult, free_bytes: int | None
+        self, job: Job, camera: Camera, session: CameraSession, result: CameraResult, free_bytes: int | None,
+        tag: str | None = None,
     ) -> None:
         cfg = self.config.config
         if session.identity.serial != camera.serial:
             raise RuntimeError(f"Connected to camera {session.identity.serial}, expected {camera.serial}")
         job.phase = "listing"
-        job.message = f"Reading media list of {camera.name}..."
+        job.step("list", f"Reading media list of {camera.name} over Wi-Fi...", tag)
         media = await session.list_media()
         done = self.db.transferred_keys(camera.serial)
         new = [m for m in media if (m.path, m.created) not in done]
         new.sort(key=lambda m: (m.created, m.path))
         result.files_found, result.files_new = len(media), len(new)
+        job.step("list", f"{len(media)} file(s) on the camera, {len(new)} new", tag)
 
         needed = sum(m.size or 0 for m in new)
         if free_bytes is not None and needed > free_bytes:
@@ -250,10 +329,12 @@ class SyncService:
         job.phase = "transferring"
         job.queue_total = len(new)
         errors: list[str] = []
+        if new:
+            job.step("transfer", f"{len(new)} new file(s)", tag)
         for index, item in enumerate(new, start=1):
             job.queue_index = index
             dest = destination(cfg.nas.target_dir, cfg.storage.layout, camera, item)
-            job.message = f"{camera.name}: {item.path}"
+            job.step("transfer", f"File {index} of {len(new)}: {item.path}", tag)
             try:
                 size = await self._transfer(job, session, item, dest)
             except (httpx.TransportError, ConnectionError) as e:
@@ -290,9 +371,9 @@ class SyncService:
                         "Transfer of %s interrupted at %d bytes (%r), resuming in %.0fs (attempt %d/%d)",
                         item.path, progress.bytes_done, e, delay, attempt + 1, TRANSFER_ATTEMPTS,
                     )
-                    job.message = f"{message} (connection interrupted, retrying {attempt + 1}/{TRANSFER_ATTEMPTS})"
+                    job.note(f"{message} (connection interrupted, retrying {attempt + 1}/{TRANSFER_ATTEMPTS})")
                     await asyncio.sleep(delay)
-            job.message = message
+            job.note(message)
             expected = progress.bytes_total
             if expected is not None and progress.bytes_done != expected:
                 raise IOError(f"size mismatch: got {progress.bytes_done} of {expected} bytes")

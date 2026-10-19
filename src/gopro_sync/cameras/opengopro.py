@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
-from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from collections.abc import AsyncIterator, Iterator
+from contextlib import asynccontextmanager, contextmanager, suppress
 from pathlib import Path
 
 import httpx
@@ -15,15 +16,21 @@ from open_gopro.network.wifi import SsidState, WifiController
 from tinydb import TinyDB
 from tinydb.storages import MemoryStorage
 
-from gopro_sync.cameras.base import CameraDriver, CameraIdentity, CameraSession, MediaStream, RemoteMedia
+from gopro_sync.cameras.base import (
+    CameraDriver, CameraIdentity, CameraSession, MediaStream, RemoteMedia, Report, no_report,
+)
 from gopro_sync.cameras.ble import NonInteractiveBleController, disconnect_stale_gopros
 from gopro_sync.cameras.media import parse_media_list
 from gopro_sync.cameras.wifi import NmcliProfileWifi
+from gopro_sync.cameras.wifi import logger as wifi_logger
 
 logger = logging.getLogger(__name__)
 
 CAMERA_BASE_URL = "http://10.5.5.9:8080"
 CHUNK_SIZE = 1024 * 1024
+KEEP_ALIVE_INTERVAL = 3.0
+STEP_TIMEOUT = 20.0
+OPEN_TIMEOUT = 240.0
 
 
 class _NoWifi(WifiController):
@@ -73,9 +80,70 @@ class _NoCohn(CohnFeature):
 
 
 def _wireless_gopro(**kwargs) -> WirelessGoPro:
-    gopro = WirelessGoPro(ble_adapter=NonInteractiveBleController, **kwargs)
+    # maintain_state=False: the SDK's busy/encoding tracking can leave its internal ready lock held after the
+    # camera reports ready, after which every command (including its keep-alive) blocks forever. We never
+    # record, so it is not needed; the keep-alive is sent by _keep_alive() instead.
+    gopro = WirelessGoPro(ble_adapter=NonInteractiveBleController, maintain_state=False, **kwargs)
     gopro.cohn = _NoCohn()
     return gopro
+
+
+async def _keep_alive(gopro: WirelessGoPro) -> None:
+    while True:
+        await asyncio.sleep(KEEP_ALIVE_INTERVAL)
+        try:
+            await asyncio.wait_for(gopro.keep_alive(), STEP_TIMEOUT)
+        except Exception as e:
+            logger.warning("Keep-alive failed: %r", e)
+
+
+# SDK log messages that mark connection progress -> (step key, text shown in the UI)
+_SDK_PROGRESS = [
+    ("Opening BLE connection", "ble", "Searching for the camera over Bluetooth..."),
+    ("Failed to connect. Retrying", "ble", "Bluetooth connection failed, retrying..."),
+    ("BLE connection is ready", "ble", "Bluetooth connected, setting up the camera..."),
+    ("Error while opening", "ble", "Connection attempt failed, starting over..."),
+    ("Discovering Wifi AP info", "wifi", "Turning on the camera's Wi-Fi..."),
+]
+
+
+class _ProgressBridge(logging.Handler):
+    """Turns SDK and Wi-Fi log records into progress reports while a connection is being opened."""
+
+    def __init__(self, report: Report) -> None:
+        super().__init__(logging.INFO)
+        self._report = report
+
+    def emit(self, record: logging.LogRecord) -> None:
+        try:
+            message = record.getMessage()
+            if record.name == wifi_logger.name:
+                self._report("wifi", message)
+                return
+            for prefix, key, text in _SDK_PROGRESS:
+                if message.startswith(prefix):
+                    self._report(key, text)
+                    return
+        except Exception:
+            pass
+
+    @contextmanager
+    def attached(self) -> Iterator[None]:
+        loggers = [logging.getLogger("open_gopro"), wifi_logger]
+        for lg in loggers:
+            lg.addHandler(self)
+        try:
+            yield
+        finally:
+            for lg in loggers:
+                lg.removeHandler(self)
+
+
+async def _step(coro, seconds: float, what: str):
+    try:
+        return await asyncio.wait_for(coro, seconds)
+    except TimeoutError:
+        raise TimeoutError(f"No answer from the camera within {seconds:.0f} s while {what}") from None
 
 
 def _content_range_total(header: str | None) -> int | None:
@@ -111,9 +179,17 @@ class OpenGoProSession(CameraSession):
         )
 
     async def list_media(self) -> list[RemoteMedia]:
-        resp = await self._http.get("/gopro/media/list")
-        resp.raise_for_status()
-        return parse_media_list(resp.json())
+        for attempt in range(1, 4):
+            try:
+                resp = await self._http.get("/gopro/media/list")
+                resp.raise_for_status()
+                return parse_media_list(resp.json())
+            except (httpx.TransportError, httpx.HTTPStatusError) as e:
+                if attempt == 3:
+                    raise
+                logger.warning("Reading the media list failed (%r), retrying", e)
+                await asyncio.sleep(2 * attempt)
+        raise AssertionError("unreachable")
 
     @asynccontextmanager
     async def stream(self, media: RemoteMedia, offset: int = 0) -> AsyncIterator[MediaStream]:
@@ -148,7 +224,7 @@ class OpenGoProDriver(CameraDriver):
         self._wifi_interface = wifi_interface
         self._cohn_db = state_dir / "cohn_db.json"
 
-    async def pair(self, timeout: float = 60) -> CameraIdentity:
+    async def pair(self, timeout: float = 60, report: Report = no_report) -> CameraIdentity:
         await disconnect_stale_gopros()
         gopro = _wireless_gopro(
             target=None,
@@ -156,15 +232,19 @@ class OpenGoProDriver(CameraDriver):
             cohn_db=self._cohn_db,
             wifi_adapter=_NoWifi,
         )
-        # open() itself retries 5 times; keep each scan short so a failure is reported within minutes
-        await gopro.open(timeout=10, retries=3)
+        bridge = _ProgressBridge(lambda _key, text: report("pair", text))
         try:
-            return await _identity(gopro)
+            with bridge.attached():
+                # open() itself retries 5 times; keep each scan short so a failure is reported within minutes
+                await _step(gopro.open(timeout=10, retries=3), OPEN_TIMEOUT, "pairing over Bluetooth")
+            report("pair", "Reading camera info...")
+            return await _step(_identity(gopro), STEP_TIMEOUT, "reading the camera info over Bluetooth")
         finally:
             await gopro.close()
 
     @asynccontextmanager
-    async def session(self, identifier: str) -> AsyncIterator[OpenGoProSession]:
+    async def session(self, identifier: str, report: Report = no_report) -> AsyncIterator[OpenGoProSession]:
+        report("ble", f"Waking camera {identifier} over Bluetooth...")
         await disconnect_stale_gopros()
         gopro = _wireless_gopro(
             target=identifier,
@@ -173,14 +253,27 @@ class OpenGoProDriver(CameraDriver):
             cohn_db=self._cohn_db,
             wifi_adapter=NmcliProfileWifi,
         )
-        await gopro.open(timeout=15, retries=3)
         session: OpenGoProSession | None = None
+        keep_alive: asyncio.Task | None = None
         try:
-            session = OpenGoProSession(gopro, await _identity(gopro))
-            await session.set_turbo(True)
+            with _ProgressBridge(report).attached():
+                await _step(
+                    gopro.open(timeout=15, retries=3), OPEN_TIMEOUT, "connecting over Bluetooth and joining its Wi-Fi"
+                )
+            keep_alive = asyncio.create_task(_keep_alive(gopro))
+            report("info", "Reading camera info over Bluetooth...")
+            identity = await _step(_identity(gopro), STEP_TIMEOUT, "reading the camera info over Bluetooth")
+            session = OpenGoProSession(gopro, identity)
+            report("info", "Enabling turbo transfer mode...")
+            await _step(session.set_turbo(True), STEP_TIMEOUT, "enabling turbo transfer over Wi-Fi")
             yield session
         finally:
             if session is not None:
-                await session.set_turbo(False)
+                with suppress(Exception):
+                    await asyncio.wait_for(session.set_turbo(False), STEP_TIMEOUT)
                 await session.aclose()
+            if keep_alive is not None:
+                keep_alive.cancel()
+                with suppress(asyncio.CancelledError):
+                    await keep_alive
             await gopro.close()

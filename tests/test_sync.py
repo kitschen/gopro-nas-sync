@@ -84,6 +84,25 @@ async def test_persistent_connection_loss_aborts_camera_and_sleeps_it(service, d
     assert driver.sleep_calls == 1
 
 
+async def test_steps_are_reported(service):
+    job = await run_sync(service)
+    assert [(s.key, s.state) for s in job.steps] == [
+        ("nas", "done"), ("ble", "done"), ("wifi", "done"), ("info", "done"),
+        ("list", "done"), ("transfer", "done"), ("sleep", "done"),
+    ]
+    assert job.steps[4].detail == "2 file(s) on the camera, 2 new"
+    assert all(s.finished_at for s in job.steps)
+
+
+async def test_connection_failure_marks_the_failing_step(service, driver):
+    driver.connect_error = TimeoutError("No answer from the camera within 240 s while connecting")
+    job = await run_sync(service)
+    assert [(s.key, s.state) for s in job.steps] == [("nas", "done"), ("ble", "failed")]
+    assert "No answer from the camera" in job.steps[-1].error
+    assert "No answer from the camera" in job.cameras[0].error
+    assert service.status()["last_job"]["steps"][-1]["elapsed"] >= 0
+
+
 async def test_not_enough_space_aborts_camera(service, nas):
     nas.free_bytes = 100
     job = await run_sync(service)
