@@ -30,6 +30,13 @@ class RemoteMedia:
         return f"{self.folder}/{self.filename}"
 
 
+@dataclass
+class MediaStream:
+    total: int | None  # full file size, if the camera reports it
+    start: int  # byte offset the chunks begin at (0 if the camera ignored the requested offset)
+    chunks: AsyncIterator[bytes]
+
+
 class CameraSession(ABC):
     """An open connection (BLE + Wi-Fi) to one camera."""
 
@@ -39,8 +46,8 @@ class CameraSession(ABC):
     async def list_media(self) -> list[RemoteMedia]: ...
 
     @abstractmethod
-    def stream(self, media: RemoteMedia) -> AbstractAsyncContextManager[tuple[int | None, AsyncIterator[bytes]]]:
-        """Yield (content_length, chunk iterator) for one file."""
+    def stream(self, media: RemoteMedia, offset: int = 0) -> AbstractAsyncContextManager[MediaStream]:
+        """Stream one file, starting at `offset` if the camera supports range requests."""
 
     @abstractmethod
     async def sleep(self) -> None:

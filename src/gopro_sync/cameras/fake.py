@@ -7,7 +7,9 @@ import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
-from gopro_sync.cameras.base import CameraDriver, CameraIdentity, CameraSession, RemoteMedia
+import httpx
+
+from gopro_sync.cameras.base import CameraDriver, CameraIdentity, CameraSession, MediaStream, RemoteMedia
 
 IDENTITY = CameraIdentity(
     serial="C3461324701234", identifier="1234", model_name="HERO11 Black (simulated)",
@@ -15,33 +17,44 @@ IDENTITY = CameraIdentity(
 )
 
 
+def fake_content(offset: int, length: int) -> bytes:
+    """Deterministic file content, so resumed downloads can be checked byte for byte."""
+    start = offset % 251
+    return (_PATTERN * (length // 251 + 2))[start : start + length]
+
+
+_PATTERN = bytes(range(251))
+
+
 class FakeSession(CameraSession):
-    def __init__(self, files: dict[str, int], media: list[RemoteMedia], chunk: int, delay: float) -> None:
+    def __init__(self, driver: FakeDriver) -> None:
         self.identity = IDENTITY
-        self._files = files
-        self._media = media
-        self._chunk = chunk
-        self._delay = delay
+        self._driver = driver
 
     async def list_media(self) -> list[RemoteMedia]:
-        return list(self._media)
+        return list(self._driver.media)
 
     @asynccontextmanager
-    async def stream(self, media: RemoteMedia) -> AsyncIterator[tuple[int | None, AsyncIterator[bytes]]]:
-        size = self._files[media.path]
+    async def stream(self, media: RemoteMedia, offset: int = 0) -> AsyncIterator[MediaStream]:
+        driver = self._driver
+        size = driver.files[media.path]
+        start = offset if driver.supports_range else 0
 
         async def chunks() -> AsyncIterator[bytes]:
-            sent = 0
+            sent = start
             while sent < size:
-                n = min(self._chunk, size - sent)
-                await asyncio.sleep(self._delay)
+                if driver.failures and driver.fail_path == media.path and sent >= driver.fail_offset:
+                    driver.failures -= 1
+                    raise httpx.ReadTimeout("simulated Wi-Fi stall")
+                n = min(driver.chunk, size - sent)
+                await asyncio.sleep(driver.delay)
+                yield fake_content(sent, n)
                 sent += n
-                yield b"\0" * n
 
-        yield size, chunks()
+        yield MediaStream(total=size, start=start, chunks=chunks())
 
     async def sleep(self) -> None:
-        pass
+        self._driver.sleep_calls += 1
 
 
 class FakeDriver(CameraDriver):
@@ -58,6 +71,12 @@ class FakeDriver(CameraDriver):
             RemoteMedia(folder=path.split("/")[0], filename=path.split("/")[1], created=base + i * 60, size=size)
             for i, (path, size) in enumerate(self.files.items())
         ]
+        # Testing aids
+        self.supports_range = True
+        self.fail_path: str | None = None
+        self.fail_offset = 0
+        self.failures = 0
+        self.sleep_calls = 0
 
     async def pair(self, timeout: float = 60) -> CameraIdentity:
         await asyncio.sleep(1)
@@ -66,4 +85,4 @@ class FakeDriver(CameraDriver):
     @asynccontextmanager
     async def session(self, identifier: str) -> AsyncIterator[FakeSession]:
         await asyncio.sleep(1)
-        yield FakeSession(self.files, self.media, self.chunk, self.delay)
+        yield FakeSession(self)

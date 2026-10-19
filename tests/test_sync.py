@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from gopro_sync.cameras.fake import FakeSession
+from gopro_sync.cameras.fake import FakeSession, fake_content
 from gopro_sync.sync import Busy
 
 
@@ -37,13 +37,14 @@ async def test_reset_single_entry_retransfers_it(service, db):
 async def test_size_mismatch_is_not_recorded(service, db, monkeypatch, target: Path):
     original = FakeSession.stream
 
-    def short_stream(self, media):
-        cm = original(self, media)
+    def short_stream(self, media, offset=0):
+        cm = original(self, media, offset)
 
         class Wrapper:
             async def __aenter__(self_inner):
-                length, chunks = await cm.__aenter__()
-                return length + 1, chunks
+                stream = await cm.__aenter__()
+                stream.total += 1
+                return stream
 
             async def __aexit__(self_inner, *exc):
                 return await cm.__aexit__(*exc)
@@ -56,6 +57,31 @@ async def test_size_mismatch_is_not_recorded(service, db, monkeypatch, target: P
     assert "size mismatch" in job.cameras[0].error
     assert db.list_transferred()[1] == 0
     assert not list(target.rglob("*.part"))
+
+
+@pytest.fixture
+def no_backoff(monkeypatch):
+    monkeypatch.setattr("gopro_sync.sync.RETRY_BACKOFF", 0)
+
+
+@pytest.mark.parametrize("supports_range", [True, False])
+async def test_interrupted_download_is_resumed(service, driver, target: Path, no_backoff, supports_range):
+    driver.supports_range = supports_range
+    driver.fail_path, driver.fail_offset, driver.failures = "100GOPRO/GX010001.MP4", 2000, 2
+    job = await run_sync(service)
+    assert job.error is None and job.cameras[0].files_done == 2
+    video = next(target.rglob("GX010001.MP4"))
+    assert video.read_bytes() == fake_content(0, 3000)
+    assert driver.failures == 0
+
+
+async def test_persistent_connection_loss_aborts_camera_and_sleeps_it(service, driver, db, target, no_backoff):
+    driver.fail_path, driver.fail_offset, driver.failures = "100GOPRO/GX010001.MP4", 1000, 99
+    job = await run_sync(service)
+    assert "Connection to camera lost" in job.cameras[0].error
+    assert db.list_transferred()[1] == 0
+    assert not list(target.rglob("*.part"))
+    assert driver.sleep_calls == 1
 
 
 async def test_not_enough_space_aborts_camera(service, nas):

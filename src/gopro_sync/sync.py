@@ -21,6 +21,10 @@ from gopro_sync.nas import NasError, NasManager
 
 logger = logging.getLogger(__name__)
 
+# Network errors on the camera's Wi-Fi are retried per file, resuming where the download stopped
+TRANSFER_ATTEMPTS = 5
+RETRY_BACKOFF = 3.0
+
 
 class Busy(RuntimeError):
     pass
@@ -33,11 +37,12 @@ class FileProgress:
     bytes_done: int = 0
     bytes_total: int | None = None
     started_at: float = field(default_factory=time.time)
+    resumed_from: int = 0
 
     @property
     def speed(self) -> float:
         elapsed = time.time() - self.started_at
-        return self.bytes_done / elapsed if elapsed > 0 else 0.0
+        return (self.bytes_done - self.resumed_from) / elapsed if elapsed > 0 else 0.0
 
 
 @dataclass
@@ -214,10 +219,15 @@ class SyncService:
         async with self.driver.session(camera.identifier) as session:
             try:
                 await self._sync_session(job, camera, session, result, free_bytes)
-            except asyncio.CancelledError:
+            finally:
+                # Also after errors and stops, so the camera doesn't stay on until its auto power-off
                 job.current = None
-                await asyncio.shield(session.sleep())
-                raise
+                job.phase = "finishing"
+                job.message = f"Putting {camera.name} to sleep..."
+                try:
+                    await asyncio.shield(asyncio.wait_for(session.sleep(), 10))
+                except Exception as e:
+                    logger.warning("Could not put %s to sleep: %r", camera.name, e)
 
     async def _sync_session(
         self, job: Job, camera: Camera, session: CameraSession, result: CameraResult, free_bytes: int | None
@@ -247,7 +257,9 @@ class SyncService:
             try:
                 size = await self._transfer(job, session, item, dest)
             except (httpx.TransportError, ConnectionError) as e:
-                raise RuntimeError(f"Connection to camera lost during {item.path}: {e!r}") from e
+                raise RuntimeError(
+                    f"Connection to camera lost during {item.path} after {TRANSFER_ATTEMPTS} attempts: {e!r}"
+                ) from e
             except Exception as e:
                 logger.exception("Transfer of %s failed", item.path)
                 errors.append(f"{item.path}: {e}")
@@ -256,10 +268,6 @@ class SyncService:
             result.files_done += 1
             result.bytes_done += size
         job.current = None
-
-        job.phase = "finishing"
-        job.message = f"Putting {camera.name} to sleep..."
-        await session.sleep()
         if errors:
             raise RuntimeError(f"{len(errors)} file(s) failed: " + "; ".join(errors[:3]))
 
@@ -268,16 +276,23 @@ class SyncService:
         part = dest.with_name(dest.name + ".part")
         progress = FileProgress(camera_path=item.path, nas_path=str(dest), bytes_total=item.size)
         job.current = progress
+        message = job.message
         try:
-            async with session.stream(item) as (length, chunks):
-                if length is not None:
-                    progress.bytes_total = length
-                with part.open("wb") as fp:
-                    async for chunk in chunks:
-                        await asyncio.to_thread(fp.write, chunk)
-                        progress.bytes_done += len(chunk)
-                    await asyncio.to_thread(fp.flush)
-                    await asyncio.to_thread(os.fsync, fp.fileno())
+            for attempt in range(1, TRANSFER_ATTEMPTS + 1):
+                try:
+                    await self._download(session, item, part, progress)
+                    break
+                except httpx.TransportError as e:
+                    if attempt == TRANSFER_ATTEMPTS:
+                        raise
+                    delay = RETRY_BACKOFF * attempt
+                    logger.warning(
+                        "Transfer of %s interrupted at %d bytes (%r), resuming in %.0fs (attempt %d/%d)",
+                        item.path, progress.bytes_done, e, delay, attempt + 1, TRANSFER_ATTEMPTS,
+                    )
+                    job.message = f"{message} (connection interrupted, retrying {attempt + 1}/{TRANSFER_ATTEMPTS})"
+                    await asyncio.sleep(delay)
+            job.message = message
             expected = progress.bytes_total
             if expected is not None and progress.bytes_done != expected:
                 raise IOError(f"size mismatch: got {progress.bytes_done} of {expected} bytes")
@@ -286,3 +301,23 @@ class SyncService:
         except BaseException:
             part.unlink(missing_ok=True)
             raise
+
+    @staticmethod
+    async def _download(session: CameraSession, item: RemoteMedia, part: Path, progress: FileProgress) -> None:
+        """Write the file to `part`, resuming after what is already there if the camera allows it."""
+        offset = part.stat().st_size if part.exists() else 0
+        async with session.stream(item, offset) as stream:
+            if stream.total is not None:
+                progress.bytes_total = stream.total
+            progress.bytes_done = progress.resumed_from = stream.start
+            progress.started_at = time.time()
+            with part.open("r+b" if stream.start else "wb") as fp:
+                fp.seek(stream.start)
+                fp.truncate()
+                try:
+                    async for chunk in stream.chunks:
+                        await asyncio.to_thread(fp.write, chunk)
+                        progress.bytes_done += len(chunk)
+                finally:
+                    await asyncio.to_thread(fp.flush)
+                    await asyncio.to_thread(os.fsync, fp.fileno())

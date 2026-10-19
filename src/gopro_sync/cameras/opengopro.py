@@ -15,7 +15,7 @@ from open_gopro.network.wifi import SsidState, WifiController
 from tinydb import TinyDB
 from tinydb.storages import MemoryStorage
 
-from gopro_sync.cameras.base import CameraDriver, CameraIdentity, CameraSession, RemoteMedia
+from gopro_sync.cameras.base import CameraDriver, CameraIdentity, CameraSession, MediaStream, RemoteMedia
 from gopro_sync.cameras.ble import NonInteractiveBleController, disconnect_stale_gopros
 from gopro_sync.cameras.media import parse_media_list
 from gopro_sync.cameras.wifi import NmcliProfileWifi
@@ -78,6 +78,14 @@ def _wireless_gopro(**kwargs) -> WirelessGoPro:
     return gopro
 
 
+def _content_range_total(header: str | None) -> int | None:
+    """Total size from 'bytes 100-199/1000'."""
+    if not header or "/" not in header:
+        return None
+    total = header.rsplit("/", 1)[1].strip()
+    return int(total) if total.isdigit() else None
+
+
 async def _identity(gopro: WirelessGoPro) -> CameraIdentity:
     info = (await gopro.ble_command.get_hardware_info()).data
     return CameraIdentity(
@@ -94,8 +102,12 @@ class OpenGoProSession(CameraSession):
     def __init__(self, gopro: WirelessGoPro, identity: CameraIdentity) -> None:
         self._gopro = gopro
         self.identity = identity
+        # No connection reuse: the camera closes idle keep-alive connections without notice, which made
+        # the next request fail with "Server disconnected without sending a response".
         self._http = httpx.AsyncClient(
-            base_url=CAMERA_BASE_URL, timeout=httpx.Timeout(30.0, connect=10.0, read=60.0)
+            base_url=CAMERA_BASE_URL,
+            timeout=httpx.Timeout(30.0, connect=10.0, read=30.0),
+            limits=httpx.Limits(max_keepalive_connections=0),
         )
 
     async def list_media(self) -> list[RemoteMedia]:
@@ -104,11 +116,15 @@ class OpenGoProSession(CameraSession):
         return parse_media_list(resp.json())
 
     @asynccontextmanager
-    async def stream(self, media: RemoteMedia) -> AsyncIterator[tuple[int | None, AsyncIterator[bytes]]]:
-        async with self._http.stream("GET", f"/videos/DCIM/{media.path}") as resp:
+    async def stream(self, media: RemoteMedia, offset: int = 0) -> AsyncIterator[MediaStream]:
+        headers = {"Range": f"bytes={offset}-"} if offset else {}
+        async with self._http.stream("GET", f"/videos/DCIM/{media.path}", headers=headers) as resp:
             resp.raise_for_status()
             length = resp.headers.get("content-length")
-            yield (int(length) if length else None), resp.aiter_bytes(CHUNK_SIZE)
+            if resp.status_code == 206 and (total := _content_range_total(resp.headers.get("content-range"))):
+                yield MediaStream(total=total, start=offset, chunks=resp.aiter_bytes(CHUNK_SIZE))
+            else:
+                yield MediaStream(total=int(length) if length else None, start=0, chunks=resp.aiter_bytes(CHUNK_SIZE))
 
     async def set_turbo(self, enable: bool) -> None:
         try:
