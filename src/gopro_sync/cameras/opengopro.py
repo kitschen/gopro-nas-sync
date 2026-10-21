@@ -12,7 +12,9 @@ import httpx
 from open_gopro import WirelessGoPro
 from open_gopro.features import CohnFeature
 from open_gopro.models import constants
+from open_gopro.domain.exceptions import ConnectFailed
 from open_gopro.network.wifi import SsidState, WifiController
+from open_gopro.util.util import SnapshotQueue
 from tinydb import TinyDB
 from tinydb.storages import MemoryStorage
 
@@ -31,6 +33,7 @@ CHUNK_SIZE = 1024 * 1024
 KEEP_ALIVE_INTERVAL = 3.0
 STEP_TIMEOUT = 20.0
 OPEN_TIMEOUT = 240.0
+WIFI_AP_TIMEOUT = 30.0
 
 
 class _NoWifi(WifiController):
@@ -79,11 +82,46 @@ class _NoCohn(CohnFeature):
         return
 
 
+class _GoPro(WirelessGoPro):
+    """Works around two SDK behaviours that make a slow-to-wake camera fail every open() retry."""
+
+    async def _open_ble(self, timeout: int = 10, retries: int = 5) -> None:
+        # The SDK pairs BLE responses with requests strictly in order. A request abandoned by a failed attempt
+        # leaves its late response queued, and every command of the next attempt then gets the previous one's
+        # response ("received incorrect response"). Start each attempt with empty queues.
+        self._sync_resp_wait_q = SnapshotQueue()
+        self._sync_resp_ready_q = SnapshotQueue()
+        self._active_builders = {}
+        await super()._open_ble(timeout, retries)
+
+    async def _open_wifi(self, timeout: int = 30, retries: int = 5) -> None:
+        # Same as the SDK, but the SDK gives the camera only 5 s to start its access point (a cold camera can
+        # take longer) and enforces that with wait_for, which abandons a BLE request mid-flight.
+        logger.info("Discovering Wifi AP info and enabling via BLE")
+        password = (await self.ble_command.get_wifi_password()).data
+        ssid = (await self.ble_command.get_wifi_ssid()).data
+        loop = asyncio.get_running_loop()
+        for attempt in range(1, retries + 1):
+            assert (await self.ble_command.enable_wifi_ap(enable=True)).ok
+            deadline = loop.time() + WIFI_AP_TIMEOUT
+            while not (await self.ble_status.ap_mode.get_value()).data:
+                if loop.time() > deadline:
+                    raise RuntimeError(f"The camera's Wi-Fi did not start within {WIFI_AP_TIMEOUT:.0f} s")
+                await asyncio.sleep(0.5)
+            try:
+                await self._wifi.open(ssid, password, timeout, 1)
+                return
+            except ConnectFailed:
+                logger.warning("Wifi connection failed. Retrying #%d", attempt)
+                assert (await self.ble_command.enable_wifi_ap(enable=False)).ok
+        raise ConnectFailed("Wifi Connection failed", timeout, retries)
+
+
 def _wireless_gopro(**kwargs) -> WirelessGoPro:
     # maintain_state=False: the SDK's busy/encoding tracking can leave its internal ready lock held after the
     # camera reports ready, after which every command (including its keep-alive) blocks forever. We never
     # record, so it is not needed; the keep-alive is sent by _keep_alive() instead.
-    gopro = WirelessGoPro(ble_adapter=NonInteractiveBleController, maintain_state=False, **kwargs)
+    gopro = _GoPro(ble_adapter=NonInteractiveBleController, maintain_state=False, **kwargs)
     gopro.cohn = _NoCohn()
     return gopro
 
