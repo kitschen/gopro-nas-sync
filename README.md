@@ -53,7 +53,8 @@ Running the installer again upgrades the install. Other commands:
 
 ## Usage
 
-1. Open `http://<pi-address>:8080/`.
+1. Open `http://<pi-address>:8080/`. A welcome window explains the setup on first visit; the **Manual** tab has
+   the full step-by-step guide, camera menu paths and troubleshooting.
 2. **NAS** tab: choose SMB, NFS or an existing directory. Click *Test connection*, then *Save and mount*. The app
    writes a systemd mount unit for `/mnt/gopronas` and checks that traffic to the NAS goes out through `eth0`.
 3. **Cameras** tab: put the camera into pairing mode (on most models: *Preferences > Wireless Connections >

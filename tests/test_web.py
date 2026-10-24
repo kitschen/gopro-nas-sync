@@ -7,6 +7,20 @@ def make_client(config, db, service, nas) -> TestClient:
     return TestClient(create_app(config, db, service, nas))
 
 
+def test_manual_and_its_pictures_are_served(config, db, service, nas):
+    import re
+
+    client = make_client(config, db, service, nas)
+    manual = client.get("/static/manual.html")
+    schema = client.get("/static/schema.svg")
+    assert manual.status_code == 200 and schema.status_code == 200
+    refs = set(re.findall(r'(?:src|data)="(/static/[^"]+)"', manual.text))
+    refs |= {f"/static/{p}" for p in re.findall(r'\shref="(img/[^"]+)"', schema.text)}
+    assert len(refs) >= 4
+    for ref in refs:
+        assert client.get(ref).status_code == 200, ref
+
+
 def test_status_and_index(config, db, service, nas):
     client = make_client(config, db, service, nas)
     assert client.get("/").status_code == 200

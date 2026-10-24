@@ -1,0 +1,262 @@
+<!-- Loaded into the Manual tab of index.html. Links of the form #manual/<id> jump to a section, #<tab> opens a tab. -->
+<article class="manual">
+  <nav class="toc card">
+    <strong>Contents</strong>
+    <ol>
+      <li><a href="#manual/what">What this app does</a></li>
+      <li><a href="#manual/how">How it works</a></li>
+      <li><a href="#manual/need">What you need</a></li>
+      <li><a href="#manual/setup">Setup, step by step</a></li>
+      <li><a href="#manual/nas">Step 1: Connect the NAS</a></li>
+      <li><a href="#manual/camera">Step 2: Prepare the camera</a></li>
+      <li><a href="#manual/pair">Step 3: Pair the camera</a></li>
+      <li><a href="#manual/sync">Step 4: Copy your files</a></li>
+      <li><a href="#manual/watch">What to look out for</a></li>
+      <li><a href="#manual/history">Files already copied</a></li>
+      <li><a href="#manual/trouble">Troubleshooting</a></li>
+      <li><a href="#manual/credits">Credits</a></li>
+    </ol>
+  </nav>
+
+  <section class="card" id="manual-what">
+    <h2>What this app does</h2>
+    <p>GoPro NAS Sync copies the photos and videos from your GoPro to your NAS, without a phone, a computer or the
+      Quik app. You press <em>Sync now</em> (or let an automation do it), and the Raspberry Pi wakes the camera,
+      copies every file it hasn't copied before, and puts the camera back to sleep.</p>
+    <ul>
+      <li>Only new files are copied. The app remembers what it already copied, even after you format the SD card.</li>
+      <li>The files stay on the camera. Delete them on the camera yourself once you're happy.</li>
+      <li>Files go straight to the NAS. Nothing is stored on the Pi, so its SD card never fills up.</li>
+    </ul>
+  </section>
+
+  <section class="card" id="manual-how">
+    <h2>How it works</h2>
+    <object class="schema" data="/static/schema.svg" type="image/svg+xml" aria-label="Diagram: camera, Raspberry Pi, router and NAS"></object>
+    <p>The Pi uses three different connections. The camera never touches your home network, and the NAS never
+      talks to the camera.</p>
+    <ol class="flow">
+      <li><span class="num n1">1</span><div><strong>You start a sync</strong> on this web page, from your phone,
+        or from an automation such as Home Assistant. The request reaches the Pi over your home network.</div></li>
+      <li><span class="num n2">2</span><div><strong>Bluetooth:</strong> the Pi checks that the NAS is ready, then
+        wakes the camera over Bluetooth and asks it to switch on its own Wi-Fi. Bluetooth also keeps the camera
+        awake during the copy and puts it back to sleep at the end.</div></li>
+      <li><span class="num n3">3</span><div><strong>Camera Wi-Fi:</strong> the Pi joins the camera's Wi-Fi network,
+        reads the list of files and downloads the new ones. This is why the Pi's Wi-Fi is reserved for the camera
+        and must not be connected to your home Wi-Fi.</div></li>
+      <li><span class="num n4">4</span><div><strong>Ethernet:</strong> while downloading, the Pi writes each file
+        directly to the NAS share through its network cable.</div></li>
+    </ol>
+  </section>
+
+  <section class="card" id="manual-need">
+    <h2>What you need</h2>
+    <div class="devices">
+      <figure><img src="/static/img/gopro-hero11.jpg" alt="GoPro HERO11 Black"><figcaption>
+        <strong>A GoPro</strong>, HERO9 Black or newer (HERO10, HERO11, HERO11 Mini, HERO12, HERO13). HERO9 needs
+        firmware 1.60 or later. HERO8 and older, and MAX, are not supported.</figcaption></figure>
+      <figure><img src="/static/img/raspberry-pi-3.jpg" alt="Raspberry Pi 3 Model B+"><figcaption>
+        <strong>A Raspberry Pi</strong> with Wi-Fi and Bluetooth (Pi 3, 4, 5 or Zero 2 W), with this app installed,
+        and <strong>connected to your router with a network cable</strong>.</figcaption></figure>
+      <figure><img src="/static/img/synology-nas.jpg" alt="Synology DiskStation NAS"><figcaption>
+        <strong>A NAS</strong> (Synology, QNAP, a router with a USB disk, a Windows share...) with a shared folder
+        reachable over SMB or NFS, and a user that may write to it.</figcaption></figure>
+    </div>
+    <p class="muted">Keep the Pi within a few metres of where the camera usually lies (for example its charging
+      spot). Walls slow the camera Wi-Fi down.</p>
+  </section>
+
+  <section class="card" id="manual-setup">
+    <h2>Setup, step by step</h2>
+    <p>Do the steps in this order. The NAS comes first because the app refuses to wake the camera when it has
+      nowhere to put the files.</p>
+    <ol class="setup-flow">
+      <li class="done-step"><span class="num">0</span><strong>Install</strong><small>Done, you're reading this
+        on the Pi.</small></li>
+      <li><a href="#manual/nas"><span class="num">1</span><strong>Connect the NAS</strong><small>NAS tab: enter the
+        share, test, save.</small></a></li>
+      <li><a href="#manual/camera"><span class="num">2</span><strong>Prepare the camera</strong><small>Turn on
+        wireless, choose the Wi-Fi band.</small></a></li>
+      <li><a href="#manual/pair"><span class="num">3</span><strong>Pair the camera</strong><small>Cameras tab:
+        once per camera.</small></a></li>
+      <li><a href="#manual/sync"><span class="num">4</span><strong>Copy your files</strong><small>Status tab:
+        Sync now.</small></a></li>
+    </ol>
+  </section>
+
+  <section class="card" id="manual-nas">
+    <h2>Step 1: Connect the NAS</h2>
+    <p><strong>On the NAS</strong>, prepare a shared folder for your GoPro files and a user that may write to it.
+      On a Synology NAS (DSM):</p>
+    <ol>
+      <li><em>Control Panel &gt; Shared Folder &gt; Create</em>, for example a folder named <code>video</code>.</li>
+      <li><em>Control Panel &gt; User &amp; Group</em>: create a user (for example <code>gopro</code>) and give it
+        <em>Read/Write</em> permission on that folder.</li>
+      <li>SMB is switched on by default (<em>Control Panel &gt; File Services &gt; SMB</em>).</li>
+    </ol>
+    <p><strong>In this app</strong>, open the <a href="#nas">NAS tab</a> and fill in:</p>
+    <table class="kv">
+      <tr><th>Type</th><td><em>SMB / CIFS share</em> for Synology, QNAP, Windows and most NAS. Choose NFS only if
+        you know you use it.</td></tr>
+      <tr><th>Server</th><td>The NAS address, for example <code>192.168.1.10</code> or <code>diskstation.local</code>.
+        Find it in your router or in Synology Assistant. The NAS must be on your wired network.</td></tr>
+      <tr><th>Share name</th><td>The shared folder's name, for example <code>video</code>. For NFS, the export path
+        instead, for example <code>/volume1/video</code>.</td></tr>
+      <tr><th>Protocol version</th><td>Leave empty. Only set it (<code>3.0</code>, <code>2.1</code>) if the test
+        complains.</td></tr>
+      <tr><th>Username, password</th><td>The NAS user from above. The password is stored on the Pi, readable only by
+        the system.</td></tr>
+      <tr><th>Sub directory</th><td>A folder inside the share for the GoPro files, <code>GoPro</code> by default. It's
+        created if needed.</td></tr>
+      <tr><th>Folder layout</th><td>How files are sorted. The default <code>{camera}/{date}</code> gives
+        <code>GoPro/HERO11 Black 2106/2026-10-18/GX010034.MP4</code>. Also available: <code>{year}</code>,
+        <code>{month}</code>, <code>{folder}</code>.</td></tr>
+    </table>
+    <p>Click <em>Test connection</em>: it checks that the NAS answers and that the Pi reaches it through the cable.
+      Then click <em>Save and mount</em>. The <a href="#status">Status tab</a> should now show
+      <span class="ok">Mounted and writable</span>. The share is mounted again automatically after a reboot.</p>
+    <p class="muted">Already mounted something yourself? Choose <em>Existing directory</em> and enter its path.</p>
+  </section>
+
+  <section class="card" id="manual-camera">
+    <h2>Step 2: Prepare the camera</h2>
+    <p>Do this once on the camera. Menu names below are for the HERO10, HERO11, HERO12 and HERO13: swipe down from the
+      top of the back screen, then tap <em>Preferences</em>. On HERO9 and HERO11 Mini the same items are under
+      <em>swipe down &gt; Connections</em>. Names may differ slightly between firmware versions.</p>
+    <table class="kv">
+      <tr><th>Wireless on</th><td><em>Preferences &gt; Wireless Connections &gt; Wireless Connections: On</em>.
+        Without it the camera can't be woken over Bluetooth.</td></tr>
+      <tr><th>Wi-Fi band</th><td><em>Preferences &gt; Wireless Connections &gt; Wi-Fi Band</em>.
+        <strong>Choose 2.4 GHz if your Pi is a Pi 3 Model B or a Zero 2 W</strong>: they can't see 5 GHz networks,
+        and the sync then fails with "Wi-Fi network not found". A Pi 3B+, 4 or 5 can use 5 GHz, which is faster when
+        the camera is close.</td></tr>
+      <tr><th>Camera name</th><td><em>Preferences &gt; Wireless Connections &gt; Camera Info</em> shows the camera's
+        name and Wi-Fi password. The app reads them itself, so you don't have to note them.</td></tr>
+      <tr><th>Firmware</th><td>Keep the camera up to date with the Quik app. HERO9 needs at least 1.60.</td></tr>
+    </table>
+  </section>
+
+  <section class="card" id="manual-pair">
+    <h2>Step 3: Pair the camera</h2>
+    <ol>
+      <li>Switch the camera on and keep it close to the Pi.</li>
+      <li>On the camera: <em>Preferences &gt; Wireless Connections &gt; Connect Device &gt; GoPro Quik App</em>
+        (HERO9 and HERO11 Mini: <em>swipe down &gt; Connections &gt; Connect Device &gt; GoPro Quik App</em>).
+        The camera now shows that it is waiting for a device.</li>
+      <li>In the <a href="#cameras">Cameras tab</a>, click <em>Pair camera</em> within about a minute.</li>
+      <li>The camera reports <em>paired</em>, and it appears in the list with its model, serial number and firmware.
+        You can rename it there. The name is used for its folder on the NAS.</li>
+    </ol>
+    <p>Pairing is stored on the Pi. You only do it again after resetting the camera's connections or clicking
+      <em>Forget</em>. You can pair several cameras; a sync copies them one after the other. Untick
+      <em>Enabled</em> to skip a camera.</p>
+  </section>
+
+  <section class="card" id="manual-sync">
+    <h2>Step 4: Copy your files</h2>
+    <p>Put the camera in reach of the Pi and switch it off normally (it then goes into standby), then click
+      <em>Sync now</em> in the <a href="#status">Status tab</a>. You'll see each step: NAS check, waking the camera,
+      joining its Wi-Fi, reading the file list, then the copy with progress, speed and time remaining. At the end
+      the camera goes back to sleep.</p>
+    <p><strong>How long does it take?</strong> On a Pi 3 the camera Wi-Fi delivers about 5 MB/s, roughly
+      <strong>20 GB per hour</strong>: a 4 GB video takes about 12 minutes. The first sync of a full SD card can take
+      several hours. Later syncs only copy what's new.</p>
+    <p><strong>Stopping</strong>: <em>Stop</em> keeps everything already copied; the file in progress is dropped
+      and copied again next time. Interrupted copies are also resumed automatically after short Wi-Fi drops.</p>
+    <h3>Start a sync without opening this page</h3>
+    <p>Any device on your network can start a sync with an HTTP <code>POST</code> request:</p>
+    <pre><code>curl -X POST <span class="js-origin">http://&lt;pi-address&gt;:8080</span>/api/sync<span class="js-token"></span></code></pre>
+    <ul>
+      <li><strong>Home Assistant</strong>, for example when the camera is put on its charger:
+        <pre><code>rest_command:
+  gopro_sync:
+    url: "<span class="js-origin">http://&lt;pi-address&gt;:8080</span>/api/sync"
+    method: post<span class="js-token-ha"></span></code></pre></li>
+      <li><strong>iPhone / Android</strong>: a Shortcut (or HTTP Shortcuts app) with <em>Get contents of URL</em>,
+        method <em>POST</em>, on the address above.</li>
+      <li><strong>Every night</strong>: a cron job on any computer, or on the Pi itself:
+        <code>gopro-sync sync</code>.</li>
+    </ul>
+  </section>
+
+  <section class="card" id="manual-watch">
+    <h2>What to look out for</h2>
+    <ul class="checks">
+      <li><strong>Wi-Fi band:</strong> 2.4 GHz on the camera if the Pi is a Pi 3 Model B or Zero 2 W.</li>
+      <li><strong>Cable for the Pi:</strong> the Pi must be connected by Ethernet. Its Wi-Fi belongs to the camera;
+        don't connect it to your home Wi-Fi.</li>
+      <li><strong>Standby, not off for days:</strong> the camera can only be woken over Bluetooth for some hours
+        after it was switched off. After a long pause, switch it on once by hand before syncing.</li>
+      <li><strong>Battery:</strong> a long copy drains the battery. Plug the camera into USB power for the first,
+        big sync.</li>
+      <li><strong>One connection at a time:</strong> close the Quik app on your phone (or switch off the phone's
+        Bluetooth) while syncing. The camera talks to one device at a time.</li>
+      <li><strong>Distance:</strong> a few metres, ideally in the same room. Speed drops quickly through walls.</li>
+      <li><strong>Don't record during a sync.</strong> Press <em>Stop</em> first if you need the camera.</li>
+      <li><strong>Free space:</strong> the app checks that the NAS has room for all new files before copying
+        anything.</li>
+    </ul>
+  </section>
+
+  <section class="card" id="manual-history">
+    <h2>Files already copied</h2>
+    <p>The <a href="#history">History tab</a> lists every file copied so far: where it came from, its size and
+      where it is on the NAS. A file in this list is never copied again, even if you rename or move it on the NAS.</p>
+    <ul>
+      <li><em>Re-transfer</em> next to a file removes it from the list, so the next sync copies it again (for
+        example after you deleted it on the NAS by mistake).</li>
+      <li><em>Reset list</em> removes all entries (or those of the selected camera): everything still on the camera
+        is copied again.</li>
+    </ul>
+    <p class="muted">The app recognises a file by camera, name and recording time. GoPro reuses names like
+      <code>GX010001.MP4</code> after formatting the SD card; those new files are still copied.</p>
+  </section>
+
+  <section class="card" id="manual-trouble">
+    <h2>Troubleshooting</h2>
+    <p>The <a href="#status">Status tab</a> shows which step failed, and <em>Last run &gt; Steps</em> keeps the
+      details. Most problems are solved by switching the camera on by hand and clicking <em>Sync now</em> again.</p>
+    <dl class="faq">
+      <dt>The NAS step fails ("not mounted", "not writable", "route")</dt>
+      <dd>Check the Pi's network cable and that the NAS is on. In the <a href="#nas">NAS tab</a>, click <em>Test
+        connection</em>; for "permission denied" check the user's Read/Write permission on the shared folder.</dd>
+      <dt>"Wake camera over Bluetooth" fails or keeps retrying</dt>
+      <dd>The camera is out of range, its wireless is off, or it has been off too long to be woken. Switch it on by
+        hand, close the Quik app on your phone, and try again.</dd>
+      <dt>"The camera's Wi-Fi network ... was not found"</dt>
+      <dd>Almost always the Wi-Fi band: set the camera to <em>2.4 GHz</em> (see <a href="#manual/camera">Step 2</a>).
+        Otherwise the camera is too far away.</dd>
+      <dt>"No answer from the camera within ... s"</dt>
+      <dd>The camera stopped responding. Switch it off and on by hand and sync again; files already copied are
+        kept.</dd>
+      <dt>The copy is interrupted ("Connection to camera lost")</dt>
+      <dd>Short drops are retried automatically. If it keeps happening, move the camera closer to the Pi and plug it
+        into power, then sync again: the copy continues with the remaining files.</dd>
+      <dt>Pairing fails</dt>
+      <dd>Make sure the camera shows the pairing screen when you click <em>Pair camera</em>, and that no phone is
+        connected to it. If it still fails, reset the camera's connections (<em>Preferences &gt; Wireless
+        Connections &gt; Reset Connections</em>), then pair again. You'll need to pair the Quik app again too.</dd>
+      <dt>A camera shows up twice or with the wrong name</dt>
+      <dd>Rename it in the <a href="#cameras">Cameras tab</a>, or <em>Forget</em> the extra entry. Its history is
+        kept.</dd>
+      <dt>Something else</dt>
+      <dd>The detailed log is on the Pi: <code>journalctl -u gopro-sync -f</code>.</dd>
+    </dl>
+  </section>
+
+  <section class="card muted" id="manual-credits">
+    <h2>Credits</h2>
+    <p>Photos from Wikimedia Commons, cropped and resized:</p>
+    <ul>
+      <li>GoPro HERO11 Black: <a href="https://commons.wikimedia.org/wiki/File:GoPro_Hero_8_Black_and_Hero_11_Black.JPG" target="_blank" rel="noopener">Benlisquare</a>,
+        <a href="https://creativecommons.org/licenses/by-sa/4.0/" target="_blank" rel="noopener">CC BY-SA 4.0</a></li>
+      <li>Raspberry Pi 3 Model B+: <a href="https://commons.wikimedia.org/wiki/File:Raspberry_Pi_3_B%2B_(39906369025).png" target="_blank" rel="noopener">Gareth Halfacree</a>,
+        <a href="https://creativecommons.org/licenses/by-sa/2.0/" target="_blank" rel="noopener">CC BY-SA 2.0</a></li>
+      <li>Synology DiskStation DS223j: <a href="https://commons.wikimedia.org/wiki/File:Synology_Disk_Station_DS223J_-_NAS-Server.jpg" target="_blank" rel="noopener">DYVER</a>,
+        <a href="https://creativecommons.org/licenses/by-sa/4.0/" target="_blank" rel="noopener">CC BY-SA 4.0</a></li>
+    </ul>
+    <p>GoPro, HERO and Quik are trademarks of GoPro, Inc.; Raspberry Pi is a trademark of Raspberry Pi Ltd;
+      Synology and DiskStation are trademarks of Synology Inc. This project is not affiliated with them. Built on the
+      <a href="https://gopro.github.io/OpenGoPro/" target="_blank" rel="noopener">Open GoPro</a> SDK.</p>
+  </section>
+</article>

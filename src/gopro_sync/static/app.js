@@ -27,13 +27,118 @@ async function api(method, url, body) {
   return data;
 }
 
-// Tabs
-document.querySelectorAll("button.tab").forEach((btn) => btn.addEventListener("click", () => {
+// Tabs and links: #<tab> opens a tab, #manual/<section> a section of the manual
+const TAB_LOADERS = { cameras: loadCameras, nas: loadNas, history: loadHistory, status: loadNasHealth, manual: loadManual };
+
+async function route() {
+  const [requested, section] = location.hash.slice(1).split("/");
+  const tab = requested && $(`#tab-${requested}`) ? requested : "status";
   document.querySelectorAll("button.tab, .panel").forEach((el) => el.classList.remove("active"));
-  btn.classList.add("active");
-  $(`#tab-${btn.dataset.tab}`).classList.add("active");
-  ({ cameras: loadCameras, nas: loadNas, history: loadHistory, status: loadNasHealth })[btn.dataset.tab]?.();
+  document.querySelector(`button.tab[data-tab="${tab}"]`).classList.add("active");
+  $(`#tab-${tab}`).classList.add("active");
+  await TAB_LOADERS[tab]?.();
+  const target = section && document.getElementById(`manual-${section}`);
+  if (target) target.scrollIntoView({ block: "start" });
+  else window.scrollTo(0, 0);
+}
+window.addEventListener("hashchange", route);
+document.querySelectorAll("button.tab").forEach((btn) => btn.addEventListener("click", () => {
+  if (location.hash === `#${btn.dataset.tab}`) route();
+  else location.hash = btn.dataset.tab;
 }));
+
+// Manual
+let manualLoaded = false;
+async function loadManual() {
+  if (manualLoaded) return;
+  const resp = await fetch("/static/manual.html");
+  $("#manual-body").innerHTML = await resp.text();
+  $("#manual-body").classList.remove("muted");
+  document.querySelectorAll(".js-origin").forEach((el) => (el.textContent = location.origin));
+  if (authRequired) {
+    document.querySelectorAll(".js-token").forEach((el) => (el.textContent = ' -H "Authorization: Bearer <token>"'));
+    document.querySelectorAll(".js-token-ha").forEach((el) => (el.textContent = '\n    headers:\n      Authorization: "Bearer <token>"'));
+  }
+  manualLoaded = true;
+  // Wait for the pictures so that jumping to a section isn't undone by them growing the page afterwards
+  const media = [...$("#manual-body").querySelectorAll("img, object")];
+  await Promise.race([
+    Promise.all(media.map((el) => new Promise((ok) => { el.addEventListener("load", ok, { once: true }); el.addEventListener("error", ok, { once: true }); if (el.complete) ok(); }))),
+    new Promise((ok) => setTimeout(ok, 2000)),
+  ]);
+}
+
+// Help pop-overs next to form fields
+function togglePop(trigger) {
+  const pop = document.getElementById(trigger.dataset.pop);
+  if (pop.matches(":popover-open")) { pop.hidePopover(); return; }
+  pop.showPopover();
+  const r = trigger.getBoundingClientRect();
+  pop.style.top = `${Math.min(r.bottom + 6, innerHeight - pop.offsetHeight - 8)}px`;
+  pop.style.left = `${Math.max(8, Math.min(r.left - 12, innerWidth - pop.offsetWidth - 8))}px`;
+}
+document.addEventListener("click", (ev) => {
+  const trigger = ev.target.closest(".info[data-pop]");
+  if (trigger) { ev.preventDefault(); togglePop(trigger); }
+});
+document.addEventListener("keydown", (ev) => {
+  const trigger = ev.target.closest?.(".info[data-pop]");
+  if (trigger && (ev.key === "Enter" || ev.key === " ")) { ev.preventDefault(); togglePop(trigger); }
+});
+
+// Setup checklist (welcome dialog and Status tab)
+let authRequired = false;
+let setup = { nas: false, nasTarget: "", cameras: [], synced: false };
+
+async function refreshSetup() {
+  try {
+    const [{ status }, { cameras }] = await Promise.all([api("GET", "/api/nas"), api("GET", "/api/cameras")]);
+    setup = {
+      nas: status.mounted && status.writable && !status.errors.length,
+      nasTarget: status.target_dir,
+      cameras,
+      synced: cameras.some((c) => c.last_sync_at && !c.last_error),
+    };
+  } catch (e) { return; }
+  const items = [
+    { done: setup.nas, title: "Connect the NAS", href: "#nas",
+      text: setup.nas ? `Files go to ${setup.nasTarget}` : "Enter your NAS share in the NAS tab, test it and save.",
+      help: "#manual/nas" },
+    { done: setup.cameras.length > 0, title: "Prepare and pair the camera", href: "#cameras",
+      text: setup.cameras.length ? `Paired: ${setup.cameras.map((c) => c.name).join(", ")}`
+        : "Turn on wireless on the camera, open its pairing screen, then click Pair camera.",
+      help: "#manual/camera" },
+    { done: setup.synced, title: "Copy your files", href: "#status",
+      text: setup.synced ? "Your first sync has completed." : "Put the camera near the Pi and click Sync now.",
+      help: "#manual/sync" },
+  ];
+  const html = items.map((it, i) =>
+    `<li class="${it.done ? "done" : ""}"><span class="num">${it.done ? "\u2713" : i + 1}</span><div>` +
+    `<a href="${it.href}" data-close><strong>${esc(it.title)}</strong></a><div class="muted">${esc(it.text)}</div>` +
+    `<a class="small" href="${it.help}" data-close>How?</a></div></li>`).join("");
+  $("#welcome-checklist").innerHTML = html;
+  $("#status-checklist").innerHTML = html;
+  $("#getting-started").hidden = items.every((it) => it.done);
+  $("#welcome-start").textContent = items.every((it) => it.done) ? "Go to status" : "Start setup";
+}
+
+function nextSetupTab() {
+  if (!setup.nas) return "nas";
+  if (!setup.cameras.length) return "cameras";
+  return "status";
+}
+
+const welcome = $("#welcome");
+$("#open-welcome").addEventListener("click", () => { refreshSetup(); welcome.showModal(); });
+welcome.addEventListener("click", (ev) => {
+  if (ev.target.closest("a[data-close]")) welcome.close();
+  else if (ev.target === welcome) welcome.close(); // click on the backdrop
+});
+welcome.addEventListener("close", () => {
+  localStorage.setItem("welcomeSeen", "1");
+  if (welcome.returnValue === "start") location.hash = nextSetupTab();
+  welcome.returnValue = "";
+});
 
 // Status
 const PHASES = {
@@ -104,6 +209,7 @@ function connectEvents() {
       lastFinished = finished;
       loadNasHealth();
       loadCameras();
+      refreshSetup();
     }
   };
   source.onerror = () => { source.close(); setTimeout(connectEvents, 3000); };
@@ -132,7 +238,6 @@ async function loadNasHealth() {
 // Cameras
 async function loadCameras() {
   const data = await api("GET", "/api/cameras");
-  $("#pair-hint").textContent = data.pairing_instructions;
   const opts = ['<option value="">All cameras</option>'];
   $("#camera-rows").innerHTML = data.cameras.map((c) => {
     opts.push(`<option value="${esc(c.serial)}">${esc(c.name)}</option>`);
@@ -219,6 +324,7 @@ form.addEventListener("submit", async (ev) => {
     const errs = r.status.errors;
     showNasResult(errs.length ? errs.join("\n") : `Saved. ${r.status.target_dir} is mounted and writable.`, !errs.length);
     loadNas();
+    refreshSetup();
   } catch (e) { showNasResult(e.message, false); }
 });
 $("#nas-mount").addEventListener("click", async () => {
@@ -261,9 +367,11 @@ $("#reset-all").addEventListener("click", async () => {
 // Init
 (async () => {
   const s = await api("GET", "/api/status");
-  $("#footer").textContent = `gopro-nas-sync ${s.version}`;
+  authRequired = s.auth_required;
+  $("#footer").innerHTML = `gopro-nas-sync ${esc(s.version)} · <a href="#manual">Manual</a>`;
   renderStatus(s);
   connectEvents();
-  loadNasHealth();
   loadCameras();
+  await Promise.all([route(), refreshSetup()]);
+  if (!localStorage.getItem("welcomeSeen")) welcome.showModal();
 })();

@@ -1,0 +1,95 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 1000 430" role="img" aria-labelledby="t d">
+  <!-- Embed with <object> (not <img>), otherwise browsers don't load the photos referenced below. -->
+  <title id="t">How GoPro NAS Sync connects the camera, the Raspberry Pi and the NAS</title>
+  <desc id="d">The Pi talks to the camera over Bluetooth (wake up, control) and over the camera's own Wi-Fi (files).
+    It is connected to the home network by Ethernet, which leads to the NAS and to the browser or automation
+    that starts a sync.</desc>
+  <style>
+    text { font: 15px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; fill: #1d2125; }
+    .title { font-weight: 700; font-size: 17px; }
+    .small { font-size: 13px; fill: #6b7280; }
+    .box { fill: #ffffff; stroke: #c9cdd2; stroke-width: 1.5; }
+    .frame { fill: none; stroke: #c9cdd2; stroke-width: 1.5; }
+    .ble { stroke: #0a84ff; } .ble-t { fill: #0a84ff; }
+    .wifi { stroke: #f79009; } .wifi-t { fill: #c46a00; }
+    .eth { stroke: #12b76a; } .eth-t { fill: #0e8f54; }
+    .http { stroke: #8a929b; } .http-t { fill: #6b7280; }
+    .line { stroke-width: 3; fill: none; }
+    .badge text { fill: #fff; font-weight: 700; font-size: 13px; }
+    @media (prefers-color-scheme: dark) {
+      text { fill: #e6e8eb; } .small { fill: #9aa1a9; }
+      .box { fill: #1f2226; stroke: #3a3f45; } .frame { stroke: #3a3f45; }
+      .wifi-t { fill: #f8a83c; } .eth-t { fill: #3fd48f; } .http-t { fill: #9aa1a9; }
+    }
+  </style>
+  <defs>
+    <marker id="a-ble" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#0a84ff"/></marker>
+    <marker id="a-wifi" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#f79009"/></marker>
+    <marker id="a-eth" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#12b76a"/></marker>
+    <marker id="a-http" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#8a929b"/></marker>
+    <clipPath id="c-cam"><rect x="20" y="105" width="180" height="140" rx="12"/></clipPath>
+    <clipPath id="c-pi"><rect x="380" y="95" width="220" height="143" rx="12"/></clipPath>
+    <clipPath id="c-nas"><rect x="850" y="250" width="135" height="129" rx="12"/></clipPath>
+  </defs>
+
+  <!-- Camera -->
+  <image href="img/gopro-hero11.jpg" xlink:href="img/gopro-hero11.jpg" x="20" y="105" width="180" height="140" clip-path="url(#c-cam)" preserveAspectRatio="xMidYMid slice"/>
+  <rect class="frame" x="20" y="105" width="180" height="140" rx="12"/>
+  <text class="title" x="20" y="270">GoPro camera</text>
+  <text class="small" x="20" y="288">photos and videos on its SD card</text>
+
+  <!-- Raspberry Pi -->
+  <image href="img/raspberry-pi-3.jpg" xlink:href="img/raspberry-pi-3.jpg" x="380" y="95" width="220" height="143" clip-path="url(#c-pi)" preserveAspectRatio="xMidYMid slice"/>
+  <rect class="frame" x="380" y="95" width="220" height="143" rx="12"/>
+  <text class="title" x="380" y="263">Raspberry Pi</text>
+  <text class="small" x="380" y="281">runs GoPro NAS Sync</text>
+  <text class="small" x="380" y="297">its Wi-Fi is reserved for the camera</text>
+  <text class="small" x="380" y="313">no files are stored on the Pi</text>
+
+  <!-- Router / home network -->
+  <rect class="box" x="700" y="148" width="110" height="58" rx="10"/>
+  <text class="title" x="716" y="173">Router</text>
+  <text class="small" x="716" y="193">home network</text>
+
+  <!-- NAS -->
+  <image href="img/synology-nas.jpg" xlink:href="img/synology-nas.jpg" x="850" y="250" width="135" height="129" clip-path="url(#c-nas)" preserveAspectRatio="xMidYMid slice"/>
+  <rect class="frame" x="850" y="250" width="135" height="129" rx="12"/>
+  <text class="title" x="850" y="402">NAS</text>
+  <text class="small" x="850" y="420">SMB or NFS share</text>
+
+  <!-- You: browser / phone / automation -->
+  <rect class="box" x="850" y="10" width="135" height="98" rx="10"/>
+  <rect x="868" y="24" width="98" height="30" rx="6" fill="#0a84ff"/>
+  <text x="884" y="44" style="fill:#fff;font-size:13px;font-weight:600">Sync now</text>
+  <text class="title" x="868" y="78">You</text>
+  <text class="small" x="868" y="97">browser, phone, HA</text>
+
+  <!-- Bluetooth: Pi <-> camera -->
+  <path class="line ble" d="M376,150 L204,150" marker-end="url(#a-ble)" marker-start="url(#a-ble)"/>
+  <text class="ble-t" x="214" y="120">Bluetooth: wake up,</text>
+  <text class="ble-t" x="214" y="136">control, back to sleep</text>
+
+  <!-- Wi-Fi: camera -> Pi (files) -->
+  <path class="line wifi" d="M204,212 L376,212" marker-end="url(#a-wifi)" stroke-dasharray="9 5"/>
+  <text class="wifi-t" x="214" y="238">camera's own Wi-Fi:</text>
+  <text class="wifi-t" x="214" y="254">photos and videos</text>
+
+  <!-- Ethernet: Pi -> router -> NAS -->
+  <path class="line eth" d="M604,177 L696,177" marker-end="url(#a-eth)"/>
+  <path class="line eth" d="M790,208 L872,247" marker-end="url(#a-eth)"/>
+  <text class="eth-t" x="612" y="168">Ethernet</text>
+  <text class="eth-t" x="700" y="252">files to</text>
+  <text class="eth-t" x="700" y="268">the share</text>
+
+  <!-- HTTP: you -> router -> Pi -->
+  <path class="line http" d="M858,96 L794,145" marker-end="url(#a-http)" stroke-dasharray="3 5"/>
+  <path class="line http" d="M702,158 Q660,110 606,118" marker-end="url(#a-http)" stroke-dasharray="3 5"/>
+  <text class="http-t" x="612" y="72">web page and</text>
+  <text class="http-t" x="612" y="88">"Sync now" (HTTP)</text>
+
+  <!-- Order of a sync, explained next to the diagram -->
+  <g class="badge"><circle cx="826" cy="120" r="12" fill="#8a929b"/><text x="822" y="125">1</text></g>
+  <g class="badge"><circle cx="290" cy="150" r="12" fill="#0a84ff"/><text x="286" y="155">2</text></g>
+  <g class="badge"><circle cx="290" cy="212" r="12" fill="#f79009"/><text x="286" y="217">3</text></g>
+  <g class="badge"><circle cx="650" cy="177" r="12" fill="#12b76a"/><text x="646" y="182">4</text></g>
+</svg>

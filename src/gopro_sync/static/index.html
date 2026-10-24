@@ -14,11 +14,40 @@
     <button class="tab" data-tab="cameras">Cameras</button>
     <button class="tab" data-tab="nas">NAS</button>
     <button class="tab" data-tab="history">History</button>
+    <button class="tab" data-tab="manual">Manual</button>
+    <button id="open-welcome" class="help-btn" title="What is this app and how do I set it up?">?</button>
   </nav>
 </header>
 
+<dialog id="welcome">
+  <form method="dialog">
+    <h2>Welcome to GoPro NAS Sync</h2>
+    <p>This app copies the photos and videos from your GoPro to your NAS. The Raspberry Pi wakes the camera over
+      Bluetooth, downloads new files over the camera's Wi-Fi and writes them to the NAS through its network cable.</p>
+    <object class="schema" data="/static/schema.svg" type="image/svg+xml" aria-label="Diagram: camera, Raspberry Pi, router and NAS"></object>
+    <h3>Three steps to get started</h3>
+    <ol class="checklist" id="welcome-checklist"></ol>
+    <p class="muted">Tip: if your Pi is a Pi 3 Model B or Zero 2 W, set the camera's Wi-Fi band to 2.4 GHz first.
+      <a href="#manual/camera" data-close>Why?</a></p>
+    <div class="row">
+      <a href="#manual" data-close>Read the full manual</a>
+      <div>
+        <button value="close">Close</button>
+        <button value="start" class="primary" id="welcome-start">Start setup</button>
+      </div>
+    </div>
+  </form>
+</dialog>
+
 <main>
   <section id="tab-status" class="panel active">
+    <div class="card" id="getting-started" hidden>
+      <div class="row">
+        <h2>Getting started</h2>
+        <a href="#manual/setup">Setup guide</a>
+      </div>
+      <ol class="checklist" id="status-checklist"></ol>
+    </div>
     <div class="card">
       <div class="row">
         <h2>Current activity</h2>
@@ -52,7 +81,16 @@
         <h2>Paired cameras</h2>
         <button id="pair" class="primary">Pair camera</button>
       </div>
-      <p class="muted" id="pair-hint"></p>
+      <div class="hint">
+        <strong>Before pairing, on the camera</strong> (once):
+        <ul>
+          <li><em>Preferences &gt; Wireless Connections</em>: Wireless Connections <strong>On</strong>.</li>
+          <li><em>Wi-Fi Band</em>: <strong>2.4 GHz</strong> if your Pi is a Pi 3 Model B or Zero 2 W.</li>
+          <li>Open <em>Connect Device &gt; GoPro Quik App</em>, then click <em>Pair camera</em> within a minute.</li>
+        </ul>
+        <span class="muted">On HERO9 and HERO11 Mini these items are under <em>swipe down &gt; Connections</em>.</span>
+        <a href="#manual/camera">Camera settings</a> · <a href="#manual/pair">Pairing help</a>
+      </div>
       <p id="pair-status"></p>
       <table>
         <thead><tr><th>Name</th><th>Model</th><th>Serial</th><th>Firmware</th><th>Last sync</th><th>Enabled</th><th></th></tr></thead>
@@ -64,8 +102,13 @@
   <section id="tab-nas" class="panel">
     <div class="card">
       <h2>NAS target</h2>
+      <div class="hint">
+        Where the files go. Create a shared folder and a user with write access on your NAS first, then enter them
+        here, click <em>Test connection</em> and <em>Save and mount</em>. The Pi reaches the NAS through its network
+        cable. <a href="#manual/nas">Step-by-step guide (with Synology example)</a>
+      </div>
       <form id="nas-form">
-        <label>Type
+        <label>Type <span class="info" data-pop="pop-type" role="button" tabindex="0" aria-label="Help">?</span>
           <select name="type">
             <option value="smb">SMB / CIFS share</option>
             <option value="nfs">NFS export</option>
@@ -73,13 +116,17 @@
           </select>
         </label>
         <div class="only-remote">
-          <label>Server (hostname or IP, reachable via Ethernet)<input name="server" placeholder="nas.local"></label>
+          <label>Server (hostname or IP, reachable via Ethernet) <span class="info" data-pop="pop-server" role="button" tabindex="0" aria-label="Help">?</span>
+            <input name="server" placeholder="192.168.1.10 or diskstation.local"></label>
           <label><span class="only-smb">Share name</span><span class="only-nfs">Export path</span>
-            <input name="share" placeholder="media or /volume1/media"></label>
-          <label>Protocol version (optional)<input name="version" placeholder="3.0 / 4.1"></label>
+            <span class="info" data-pop="pop-share" role="button" tabindex="0" aria-label="Help">?</span>
+            <input name="share" placeholder="video (SMB) or /volume1/video (NFS)"></label>
+          <label>Protocol version (optional) <span class="info" data-pop="pop-version" role="button" tabindex="0" aria-label="Help">?</span>
+            <input name="version" placeholder="leave empty"></label>
         </div>
         <div class="only-smb">
-          <label>Username<input name="username" autocomplete="off"></label>
+          <label>Username <span class="info" data-pop="pop-user" role="button" tabindex="0" aria-label="Help">?</span>
+            <input name="username" autocomplete="off"></label>
           <label>Password <span class="muted">(leave empty to keep the stored one)</span>
             <input name="password" type="password" autocomplete="new-password"></label>
           <label>Domain (optional)<input name="domain"></label>
@@ -87,8 +134,10 @@
         <div class="only-path">
           <label>Directory<input name="path" placeholder="/mnt/nas"></label>
         </div>
-        <label>Sub directory inside the share<input name="subdir"></label>
-        <label>Folder layout <span class="muted">({camera} {date} {year} {month} {folder})</span><input name="layout"></label>
+        <label>Sub directory inside the share <span class="info" data-pop="pop-subdir" role="button" tabindex="0" aria-label="Help">?</span>
+          <input name="subdir"></label>
+        <label>Folder layout <span class="muted">({camera} {date} {year} {month} {folder})</span>
+          <span class="info" data-pop="pop-layout" role="button" tabindex="0" aria-label="Help">?</span><input name="layout"></label>
         <div class="row">
           <button type="button" id="nas-test">Test connection</button>
           <button type="submit" class="primary">Save and mount</button>
@@ -98,6 +147,31 @@
       </form>
       <pre id="nas-result" hidden></pre>
     </div>
+    <div popover id="pop-type" class="pop"><strong>Type</strong><p><em>SMB / CIFS</em> works with Synology, QNAP,
+      Windows and almost every NAS. Choose <em>NFS</em> only if you already use NFS. <em>Existing directory</em> is for
+      a folder you mount on the Pi yourself.</p></div>
+    <div popover id="pop-server" class="pop"><strong>Server</strong><p>The NAS's IP address or name, for example
+      <code>192.168.1.10</code> or <code>diskstation.local</code>. You find it in your router's device list or in
+      Synology Assistant. It must be on your wired network, not on the camera's network (10.5.5.x).</p></div>
+    <div popover id="pop-share" class="pop"><strong>Share name / export path</strong><p>SMB: the name of the shared
+      folder as shown on the NAS, for example <code>video</code> (no slashes). NFS: the full export path, for
+      example <code>/volume1/video</code> on Synology.</p></div>
+    <div popover id="pop-version" class="pop"><strong>Protocol version</strong><p>Leave empty to let the Pi and the
+      NAS agree. Only if the test fails with a protocol error, try <code>3.0</code> or <code>2.1</code> (SMB), or
+      <code>4.1</code> / <code>3</code> (NFS).</p></div>
+    <div popover id="pop-user" class="pop"><strong>Username and password</strong><p>A NAS user with
+      <em>Read/Write</em> permission on the shared folder. Creating a dedicated user (for example <code>gopro</code>)
+      is a good idea. The password is stored on the Pi and only readable by the system.</p></div>
+    <div popover id="pop-subdir" class="pop"><strong>Sub directory</strong><p>A folder inside the share where all
+      GoPro files go, created automatically. Leave empty to write directly into the share.</p></div>
+    <div popover id="pop-layout" class="pop"><strong>Folder layout</strong><p>How files are sorted below the sub
+      directory. <code>{camera}/{date}</code> gives <code>HERO11 Black 2106/2026-10-18/GX010034.MP4</code>.
+      <code>{year}/{month}</code> gives <code>2026/10/GX010034.MP4</code>. <code>{folder}</code> is the camera's
+      folder, for example <code>100GOPRO</code>.</p></div>
+  </section>
+
+  <section id="tab-manual" class="panel">
+    <div id="manual-body" class="muted">Loading the manual...</div>
   </section>
 
   <section id="tab-history" class="panel">
@@ -110,7 +184,8 @@
           <button id="reset-all" class="danger">Reset list</button>
         </div>
       </div>
-      <p class="muted">Files in this list are not transferred again. Remove an entry to transfer that file on the next sync.</p>
+      <p class="muted">Files in this list are not transferred again. Remove an entry to transfer that file on the next sync.
+        <a href="#manual/history">More</a></p>
       <table>
         <thead><tr><th>Camera file</th><th>Size</th><th>NAS path</th><th>Transferred</th><th></th></tr></thead>
         <tbody id="history-rows"></tbody>
