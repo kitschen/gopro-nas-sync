@@ -1,6 +1,6 @@
 [Unit]
 Description=GoPro NAS sync daemon
-Documentation=https://github.com/OWNER/gopro-nas-sync
+Documentation=https://github.com/kitschen/gopro-nas-sync
 Wants=network-online.target bluetooth.target
 After=network-online.target bluetooth.target NetworkManager.service remote-fs.target
 

@@ -3,6 +3,9 @@ name = "gopro-nas-sync"
 version = "0.1.0"
 description = "Raspberry Pi daemon that wakes GoPro cameras over BLE and streams new media to a NAS over Ethernet"
 readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Philipp Buluschek" }]
 requires-python = ">=3.11,<3.14"
 dependencies = [
     "open-gopro>=0.22,<0.23",
@@ -13,6 +16,10 @@ dependencies = [
     "pydantic>=2",
     "tomli-w>=1",
 ]
+
+[project.urls]
+Homepage = "https://github.com/kitschen/gopro-nas-sync"
+Issues = "https://github.com/kitschen/gopro-nas-sync/issues"
 
 [project.scripts]
 gopro-sync = "gopro_sync.cli:main"

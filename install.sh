@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # gopro-nas-sync installer for Raspberry Pi OS (Bookworm or later).
 #
-#   curl -fsSL https://raw.githubusercontent.com/OWNER/gopro-nas-sync/main/install.sh | sudo bash
+#   curl -fsSL https://raw.githubusercontent.com/kitschen/gopro-nas-sync/main/install.sh | sudo bash
 #   sudo ./install.sh                  # from a local checkout
 #   sudo ./install.sh --reconfigure    # run the setup wizard again
 #   sudo ./install.sh --uninstall [--purge]
@@ -9,7 +9,7 @@
 # Environment: GOPRO_SYNC_REPO (git URL), GOPRO_SYNC_REF (branch / tag), NONINTERACTIVE=1
 set -euo pipefail
 
-REPO_URL="${GOPRO_SYNC_REPO:-https://github.com/OWNER/gopro-nas-sync.git}"
+REPO_URL="${GOPRO_SYNC_REPO:-https://github.com/kitschen/gopro-nas-sync.git}"
 REPO_REF="${GOPRO_SYNC_REF:-main}"
 PREFIX=/opt/gopro-sync
 CONF_DIR=/etc/gopro-sync
@@ -81,6 +81,8 @@ info "Checking system"
 . /etc/os-release
 case "${VERSION_CODENAME:-}" in
     bookworm|trixie) ;;
+    stretch|buster|bullseye)
+        die "${PRETTY_NAME} is too old: gopro-nas-sync needs NetworkManager, the default since Raspberry Pi OS Bookworm (2023). Flash a current Raspberry Pi OS with Raspberry Pi Imager and run the installer again." ;;
     *) warn "Tested on Raspberry Pi OS Bookworm / Trixie; detected '${PRETTY_NAME:-unknown}'." ;;
 esac
 command -v systemctl >/dev/null || die "systemd is required."
@@ -106,7 +108,7 @@ if [[ -n "$WIFI_CONN" && "$WIFI_CONN" != "--" && "$WIFI_CONN" != "gopro-sync-cam
     warn "that connection will drop during every sync. Consider: sudo nmcli connection modify '${WIFI_CONN}' connection.autoconnect no"
 fi
 if command -v iw >/dev/null && iw reg get 2>/dev/null | grep -q "country 00"; then
-    warn "Wi-Fi country is not set; 5 GHz camera access points may not be visible. Set it with: sudo raspi-config nonint do_wifi_country DE"
+    warn "Wi-Fi country is not set; 5 GHz camera access points may not be visible. Set it with: sudo raspi-config nonint do_wifi_country <country code, e.g. DE>"
 fi
 
 # ---------------------------------------------------------------------------------------------
